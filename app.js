@@ -3,70 +3,72 @@
  * ------------------------------------------------------------
  * 품목을 바꾸고 싶으면 아래 OUTFIT_TABLE 만 고치면 된다.
  *  - min  : 이 구간의 최저 온도(이상). 위에서부터 차례로 비교하므로 높은 온도 순서를 지킬 것.
- *  - 각 칸은 { icon: '이모지', name: '품목 이름' }.
- *    필요 없는 칸은 null 로 두면 화면에 "필요 없음"으로 나온다.
+ *  - 각 칸은 { icon: '이모지', name: '품목 이름', art: '캐릭터 그림 이름' }.
+ *    필요 없는 칸은 null 로 두면 화면에 "필요 없음"으로 나오고 캐릭터에도 그리지 않는다.
+ *  - art 는 character.js 의 PIECES 이름. 여러 개를 겹치려면 배열로 (예: ['muffler', 'gloves']).
+ *    쓸 수 있는 이름과 새 그림을 추가하는 방법은 character.js 맨 위 주석 참고.
  */
 const OUTFIT_TABLE = [
   {
     min: 28, label: '28° 이상',
-    top:    { icon: '🎽', name: '민소매 · 반팔' },
-    bottom: { icon: '🩳', name: '반바지 · 린넨 바지' },
+    top:    { icon: '🎽', name: '민소매 · 반팔', art: 'tank' },
+    bottom: { icon: '🩳', name: '반바지 · 린넨 바지', art: 'shorts' },
     outer:  null,
-    acc:    { icon: '🕶️', name: '선글라스 · 모자' },
+    acc:    { icon: '🕶️', name: '선글라스 · 모자', art: ['sunglasses', 'cap'] },
   },
   {
     min: 23, label: '23–27°',
-    top:    { icon: '👕', name: '반팔 · 얇은 셔츠' },
-    bottom: { icon: '🩳', name: '반바지 · 면바지' },
+    top:    { icon: '👕', name: '반팔 · 얇은 셔츠', art: 'tshirt' },
+    bottom: { icon: '🩳', name: '반바지 · 면바지', art: 'shorts' },
     outer:  null,
-    acc:    { icon: '🧢', name: '모자' },
+    acc:    { icon: '🧢', name: '모자', art: 'cap' },
   },
   {
     min: 20, label: '20–22°',
-    top:    { icon: '👚', name: '얇은 긴팔 · 블라우스' },
-    bottom: { icon: '👖', name: '면바지 · 슬랙스' },
-    outer:  { icon: '🧶', name: '얇은 가디건' },
+    top:    { icon: '👚', name: '얇은 긴팔 · 블라우스', art: 'longsleeve' },
+    bottom: { icon: '👖', name: '면바지 · 슬랙스', art: 'slacks' },
+    outer:  { icon: '🧶', name: '얇은 가디건', art: 'cardigan' },
     acc:    null,
   },
   {
     min: 17, label: '17–19°',
-    top:    { icon: '👕', name: '맨투맨 · 얇은 니트' },
-    bottom: { icon: '👖', name: '청바지 · 면바지' },
-    outer:  { icon: '🧥', name: '바람막이 · 얇은 재킷' },
+    top:    { icon: '👕', name: '맨투맨 · 얇은 니트', art: 'sweatshirt' },
+    bottom: { icon: '👖', name: '청바지 · 면바지', art: 'jeans' },
+    outer:  { icon: '🧥', name: '바람막이 · 얇은 재킷', art: 'windbreaker' },
     acc:    null,
   },
   {
     min: 12, label: '12–16°',
-    top:    { icon: '👔', name: '니트 · 셔츠' },
-    bottom: { icon: '👖', name: '청바지 · 슬랙스' },
-    outer:  { icon: '🧥', name: '재킷 · 트렌치코트' },
-    acc:    { icon: '🧣', name: '얇은 스카프' },
+    top:    { icon: '👔', name: '니트 · 셔츠', art: 'shirt' },
+    bottom: { icon: '👖', name: '청바지 · 슬랙스', art: 'jeans' },
+    outer:  { icon: '🧥', name: '재킷 · 트렌치코트', art: 'jacket' },
+    acc:    { icon: '🧣', name: '얇은 스카프', art: 'scarf' },
   },
   {
     min: 9, label: '9–11°',
-    top:    { icon: '🧶', name: '니트 · 기모 맨투맨' },
-    bottom: { icon: '👖', name: '청바지 · 기모 바지' },
-    outer:  { icon: '🧥', name: '트렌치코트 · 점퍼' },
-    acc:    { icon: '🧣', name: '스카프' },
+    top:    { icon: '🧶', name: '니트 · 기모 맨투맨', art: 'knit' },
+    bottom: { icon: '👖', name: '청바지 · 기모 바지', art: 'jeans' },
+    outer:  { icon: '🧥', name: '트렌치코트 · 점퍼', art: 'trench' },
+    acc:    { icon: '🧣', name: '스카프', art: 'scarf' },
   },
   {
     min: 5, label: '5–8°',
-    top:    { icon: '🧶', name: '두꺼운 니트 · 히트텍' },
-    bottom: { icon: '👖', name: '기모 바지' },
-    outer:  { icon: '🧥', name: '울 코트 · 가죽 재킷' },
-    acc:    { icon: '🧣', name: '목도리' },
+    top:    { icon: '🧶', name: '두꺼운 니트 · 히트텍', art: 'knit' },
+    bottom: { icon: '👖', name: '기모 바지', art: 'warmpants' },
+    outer:  { icon: '🧥', name: '울 코트 · 가죽 재킷', art: 'coat' },
+    acc:    { icon: '🧣', name: '목도리', art: 'muffler' },
   },
   {
     min: -Infinity, label: '4° 이하',
-    top:    { icon: '🧶', name: '히트텍 + 두꺼운 니트' },
-    bottom: { icon: '👖', name: '기모 바지 · 내복' },
-    outer:  { icon: '🧥', name: '패딩 · 두꺼운 코트' },
-    acc:    { icon: '🧤', name: '목도리 · 장갑 · 비니' },
+    top:    { icon: '🧶', name: '히트텍 + 두꺼운 니트', art: 'knit' },
+    bottom: { icon: '👖', name: '기모 바지 · 내복', art: 'warmpants' },
+    outer:  { icon: '🧥', name: '패딩 · 두꺼운 코트', art: 'padding' },
+    acc:    { icon: '🧤', name: '목도리 · 장갑 · 비니', art: ['muffler', 'gloves', 'beanie'] },
   },
 ];
 
 // 비가 올 때 소품 칸에 더해지는 품목
-const RAIN_ITEM = { icon: '☂️', name: '우산' };
+const RAIN_ITEM = { icon: '☂️', name: '우산', art: 'umbrella' };
 
 // 체감 보정 3단계 (추천에 쓰는 온도에 더해진다)
 const SENSITIVITY = {
@@ -288,6 +290,18 @@ function renderOutfit() {
     acc: rainy ? mergeItems(RAIN_ITEM, band.acc) : band.acc,
   };
 
+  // 캐릭터: 같은 품목을 그림으로 (겉옷이 null 이면 그 층은 비운다)
+  Character.render($('figure'), {
+    bottom: items.bottom?.art,
+    top: items.top?.art,
+    outer: items.outer?.art,
+    acc: items.acc?.art,
+  });
+  const described = [['상의', items.top], ['하의', items.bottom], ['겉옷', items.outer], ['소품', items.acc]]
+    .filter(([, item]) => item)
+    .map(([label, item]) => `${label} ${item.name}`);
+  $('figure').setAttribute('aria-label', `추천 옷을 입은 캐릭터: ${described.join(', ')}`);
+
   for (const slot of document.querySelectorAll('.slot')) {
     const key = slot.dataset.slot;
     const item = items[key];
@@ -311,7 +325,11 @@ function renderOutfit() {
 // 우산 + 기존 소품을 한 칸에 합친다
 function mergeItems(extra, base) {
   if (!base) return extra;
-  return { icon: `${extra.icon}${base.icon}`, name: `${extra.name} · ${base.name}` };
+  return {
+    icon: `${extra.icon}${base.icon}`,
+    name: `${extra.name} · ${base.name}`,
+    art: [].concat(extra.art ?? [], base.art ?? []), // 우산을 먼저 그려야 장갑이 손잡이 위로 온다
+  };
 }
 
 function renderSlider() {

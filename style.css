@@ -11,6 +11,43 @@
   --accent-soft: #e3ecfc;
   --rain: #2f6fe4;
   --shadow: 0 1px 2px rgba(20, 20, 30, .05), 0 4px 14px rgba(20, 20, 30, .05);
+
+  /* 캐릭터 무대 */
+  --stage: #ebe6dc;
+  --c-floor: rgba(60, 45, 30, .12);
+
+  /* 캐릭터 색 (character.js 에서 var(--c-…) 로 씀) */
+  --c-ink: #2b2730;
+  --c-skin: #f7cfae;
+  --c-blush: #f08f7e;
+  --c-hair: #4b3427;
+  --c-shoe: #575160;
+  --c-tank: #f5d25a;
+  --c-tee: #7cc3e9;
+  --c-long: #f3efe6;
+  --c-sweat: #a7c78d;
+  --c-knit: #e9a066;
+  --c-shirt: #cfe0f6;
+  --c-collar: #ffffff;
+  --c-shorts: #e3c58c;
+  --c-slacks: #9ea4af;
+  --c-jeans: #4f78ba;
+  --c-warm: #6c707c;
+  --c-cardigan: #eab5c7;
+  --c-wind: #4fb0a3;
+  --c-jacket: #8c7a63;
+  --c-trench: #d4b385;
+  --c-coat: #56709a;
+  --c-padding: #e5605b;
+  --c-cap: #e5605b;
+  --c-glasses: #2b2730;
+  --c-beanie: #5b8ed8;
+  --c-scarf: #f1c84a;
+  --c-muffler: #d8504b;
+  --c-muffler-2: #f6e3c3;
+  --c-gloves: #d8504b;
+  --c-umbrella: #ffb703;
+  --c-umbrella-shaft: #2b2730;
 }
 
 /* ===== 다크모드: 시스템 설정을 따라 자동 전환 ===== */
@@ -27,6 +64,19 @@
     --accent-soft: #23304a;
     --rain: #7aa5ff;
     --shadow: none;
+
+    --stage: #262a32;
+    --c-floor: rgba(0, 0, 0, .35);
+    --c-ink: #121116;
+    --c-hair: #5e4434;
+    --c-shoe: #6e6878;
+    --c-slacks: #aab0bb;
+    --c-jeans: #5f8bd0;
+    --c-warm: #8a8f9c;
+    --c-jacket: #a08c72;
+    --c-coat: #6d88b6;
+    --c-glasses: #17161b;
+    --c-umbrella-shaft: #9aa0ad;
   }
 }
 
@@ -99,11 +149,11 @@ body {
 .settings-menu small { margin-left: auto; color: var(--text-3); font-variant-numeric: tabular-nums; }
 
 /* ===== 1. 체감온도 ===== */
-.hero { text-align: center; padding: 18px 0 26px; }
+.hero { text-align: center; padding: 6px 0 14px; }
 .hero-caption { margin: 0; font-size: 14px; color: var(--text-2); }
 .hero-temp {
   margin: 0;
-  font-size: clamp(88px, 30vw, 120px);
+  font-size: clamp(76px, 25vw, 104px);
   font-weight: 700;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -114,7 +164,20 @@ body {
 .hero-line .rain { color: var(--rain); font-weight: 600; }
 .hero-line .link-btn { margin-left: 4px; }
 
-/* ===== 2. 주 영역: 추천 의상 ===== */
+/* ===== 2. 주 영역: 캐릭터 ===== */
+.figure {
+  background: var(--stage);
+  border-radius: 28px;
+  height: min(48vh, 360px);
+  min-height: 260px;
+  padding: 10px 0 4px;
+  margin-bottom: 14px;
+}
+.figure svg { display: block; width: 100%; height: 100%; overflow: visible; }
+/* 옷 바뀔 때 전환 기준점: 각 조각의 아래쪽 가운데 */
+.figure .piece, .figure .piece-leaving { transform-box: fill-box; transform-origin: 50% 100%; }
+
+/* 추천 설명 */
 .outfit-head {
   display: flex;
   align-items: baseline;
@@ -123,7 +186,7 @@ body {
   flex-wrap: wrap;
   margin-bottom: 10px;
 }
-.outfit-head h1 { margin: 0; font-size: 19px; font-weight: 700; }
+.outfit-head h1 { margin: 0; font-size: 16px; font-weight: 700; }
 .basis { margin: 0; font-size: 13px; color: var(--text-2); }
 .basis b { color: var(--accent); font-weight: 600; }
 
@@ -133,24 +196,25 @@ body {
   padding: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 8px;
 }
 .slot {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 14px;
   box-shadow: var(--shadow);
-  padding: 14px 14px 16px;
-  min-height: 150px;
-  display: flex;
-  flex-direction: column;
+  padding: 9px 12px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  align-items: center;
 }
-.slot-label { font-size: 13px; color: var(--text-3); font-weight: 600; }
-.slot-icon { font-size: 44px; line-height: 1; margin: 12px 0 10px; }
-.slot-name { font-size: 17px; font-weight: 600; line-height: 1.3; }
+.slot-label { grid-column: 2; font-size: 11px; color: var(--text-3); font-weight: 600; }
+.slot-icon { grid-row: 1 / 3; font-size: 22px; line-height: 1; }
+.slot-name { grid-column: 2; font-size: 14px; font-weight: 600; line-height: 1.3; }
 .slot.is-empty .slot-icon { opacity: .35; }
 .slot.is-empty .slot-name { color: var(--text-3); font-weight: 500; }
-.slot .rain-tag { color: var(--rain); }
 
 /* 추천이 바뀔 때 살짝 반응 */
 .slot.flash { animation: flash .35s ease-out; }
@@ -159,7 +223,7 @@ body {
 
 /* ===== 3. 부 영역: 슬라이더 ===== */
 .explore {
-  margin-top: 26px;
+  margin-top: 22px;
   padding: 14px 4px 0;
   border-top: 1px solid var(--line);
 }
