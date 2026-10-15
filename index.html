@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121316" media="(prefers-color-scheme: dark)">
+  <title>오늘 뭐 입지</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app">
+
+    <!-- 우상단 설정: 체감 보정 -->
+    <header class="topbar">
+      <span class="place" id="place">위치 확인 중…</span>
+      <div class="settings">
+        <button type="button" class="settings-btn" id="settingsBtn"
+                aria-haspopup="true" aria-expanded="false" aria-controls="settingsMenu">
+          <span id="settingsLabel">보통</span> <span aria-hidden="true">▾</span>
+        </button>
+        <div class="settings-menu" id="settingsMenu" role="radiogroup" aria-label="체감 보정" hidden>
+          <p class="settings-title">나는 평소에…</p>
+          <label><input type="radio" name="sense" value="cold"> 추위를 잘 탐 <small>−2°</small></label>
+          <label><input type="radio" name="sense" value="normal"> 보통 <small>±0°</small></label>
+          <label><input type="radio" name="sense" value="hot"> 더위를 잘 탐 <small>+2°</small></label>
+        </div>
+      </div>
+    </header>
+
+    <!-- 1. 최상단: 현재 체감온도 -->
+    <section class="hero" aria-label="현재 날씨">
+      <p class="hero-caption">지금 체감온도</p>
+      <p class="hero-temp"><span id="feels">--</span><span class="deg">°</span></p>
+      <p class="hero-line" id="weatherLine">날씨를 불러오는 중…</p>
+    </section>
+
+    <!-- 2. 주 영역: 추천 의상 4칸 -->
+    <section class="outfit" aria-labelledby="outfitTitle">
+      <div class="outfit-head">
+        <h1 id="outfitTitle">오늘의 추천</h1>
+        <p class="basis" id="basis"></p>
+      </div>
+      <ul class="outfit-grid" id="outfitGrid" aria-live="polite">
+        <li class="slot" data-slot="top"><span class="slot-label">상의</span><span class="slot-icon"></span><span class="slot-name"></span></li>
+        <li class="slot" data-slot="bottom"><span class="slot-label">하의</span><span class="slot-icon"></span><span class="slot-name"></span></li>
+        <li class="slot" data-slot="outer"><span class="slot-label">겉옷</span><span class="slot-icon"></span><span class="slot-name"></span></li>
+        <li class="slot" data-slot="acc"><span class="slot-label">소품</span><span class="slot-icon"></span><span class="slot-name"></span></li>
+      </ul>
+    </section>
+
+    <!-- 3. 부 영역: 다른 온도로 보기 -->
+    <section class="explore" aria-label="다른 온도로 보기">
+      <div class="explore-head">
+        <label for="slider">다른 온도로 보기</label>
+        <output id="sliderValue" for="slider">--°</output>
+      </div>
+      <input type="range" id="slider" min="-10" max="35" step="1" value="20">
+      <div class="explore-scale" aria-hidden="true"><span>-10°</span><span>35°</span></div>
+      <button type="button" class="reset-btn" id="resetBtn" disabled>현재로 돌아가기</button>
+    </section>
+
+    <footer class="foot">
+      <span id="updated"></span>
+      <button type="button" class="link-btn" id="refreshBtn">새로 고침</button>
+      <span>· 날씨 Open-Meteo</span>
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
