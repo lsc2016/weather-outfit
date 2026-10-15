@@ -289,5 +289,6 @@
     }
   }
 
-  window.Character = { render, PIECES };
+  // BASE · LAYERS 는 make-icon.js 가 아이콘을 그릴 때도 쓴다
+  window.Character = { render, PIECES, BASE, LAYERS };
 })();
