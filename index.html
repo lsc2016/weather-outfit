@@ -96,7 +96,7 @@
 
       <section class="backup" aria-labelledby="backupTitle">
         <h2 id="backupTitle">백업</h2>
-        <p class="backup-note">옷장을 파일로 저장해 두면, 실수로 지워도 가져오기로 되돌릴 수 있어요.</p>
+        <p class="backup-note">옷장과 내 사이즈 · 살 옷 메모를 파일로 저장해 두면, 실수로 지워도 가져오기로 되돌릴 수 있어요.</p>
         <div class="backup-btns">
           <button type="button" class="ghost-btn" id="exportBtn">내보내기</button>
           <label class="ghost-btn">가져오기<input type="file" id="importInput" accept="application/json,.json" hidden></label>
@@ -108,7 +108,50 @@
     <!-- ===== 탭 3. 나 ===== -->
     <div class="view" data-view="me" hidden>
       <header class="view-head"><h1>나</h1></header>
-      <div class="placeholder">준비 중</div>
+
+      <!-- 1. 내 사이즈: 톡 누르면 그 자리에서 수정 -->
+      <section class="me-section" aria-labelledby="sizesTitle">
+        <h2 id="sizesTitle">내 사이즈</h2>
+        <div class="sizes" id="sizes"></div>
+        <p class="me-note">칸을 누르면 바로 고칠 수 있어요.</p>
+      </section>
+
+      <!-- 2. 옷장 분석: 옷장에서 자동 계산 -->
+      <section class="me-section" aria-labelledby="analysisTitle">
+        <h2 id="analysisTitle">옷장 분석</h2>
+        <p class="me-empty" id="analysisEmpty" hidden><a href="#closet">옷장</a>에 옷을 넣으면 분석해 드려요.</p>
+        <div id="analysis">
+          <div class="me-sub-head">
+            <h3>색 분포</h3>
+            <div class="filter-row" id="colorFilter" aria-label="종류 고르기"></div>
+          </div>
+          <ul class="color-bars" id="colorBars"></ul>
+
+          <h3>따뜻한 정도 분포</h3>
+          <div class="table-wrap"><table class="warmth-table" id="warmthTable"></table></div>
+          <p class="me-note">빨간 칸은 한 벌도 없는 자리예요. 1 한여름 반팔 ~ 5 패딩</p>
+
+          <h3>빈 자리 제안</h3>
+          <ul class="suggestions" id="suggestions"></ul>
+        </div>
+      </section>
+
+      <!-- 3. 살 옷 메모 -->
+      <section class="me-section" aria-labelledby="shopTitle">
+        <h2 id="shopTitle">살 옷 메모</h2>
+        <ul class="shop-list" id="shopList"></ul>
+        <form class="shop-add" id="shopForm" novalidate>
+          <input type="text" id="shopName" maxlength="40" autocomplete="off" placeholder="살 옷 이름" aria-label="살 옷 이름">
+          <select id="shopType" aria-label="종류">
+            <option value="top">상의</option>
+            <option value="bottom">하의</option>
+            <option value="outer">겉옷</option>
+            <option value="acc">소품</option>
+          </select>
+          <input type="color" id="shopColor" value="#9a9da3" aria-label="색">
+          <button type="submit" class="primary-btn">추가</button>
+        </form>
+      </section>
     </div>
   </main>
 
@@ -202,6 +245,7 @@
   <script src="character.js"></script>
   <script src="wardrobe.js"></script>
   <script src="closet.js"></script>
+  <script src="me.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -198,8 +198,10 @@
     $('sheetActions').hidden = show;
   }
 
-  function openEditor(id = null) {
+  // id 가 있으면 그 옷 수정, 없으면 새 옷. prefill = { type, name, color, warmth } 로 미리 채울 수 있다
+  function openEditor(id = null, prefill = null) {
     const item = id ? Wardrobe.get(id) : null;
+    const start = item || prefill || {};
     edit.id = item ? item.id : null;
     form.reset();
     $('formError').textContent = '';
@@ -207,11 +209,11 @@
 
     $('itemDialogTitle').textContent = item ? '옷 수정' : '옷 추가';
     $('deleteBtn').hidden = !item;
-    form.elements.type.value = item ? item.type : '';
-    $('itemName').value = item ? item.name : '';
-    form.elements.warmth.value = item ? String(item.warmth) : '';
-    setColor(item ? item.color : PALETTE[2][1]);
-    setPhoto(item ? item.photo : null);
+    form.elements.type.value = start.type || '';
+    $('itemName').value = start.name || '';
+    form.elements.warmth.value = start.warmth ? String(start.warmth) : '';
+    setColor(/^#[0-9a-f]{6}$/i.test(start.color) ? start.color : PALETTE[2][1]);
+    setPhoto(start.photo || null);
     setWarmthHint();
 
     dialog.showModal();
@@ -300,7 +302,6 @@
 
   function exportFile() {
     const count = Wardrobe.list().length;
-    if (!count) { setStatus('내보낼 옷이 없어요.'); return; }
     const blob = new Blob([Wardrobe.exportText()], { type: 'application/json' });
     const d = new Date();
     const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -311,7 +312,7 @@
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    setStatus(`${count}벌을 파일로 내보냈어요.`);
+    setStatus(`내보냈어요: 옷 ${count}벌 · 내 사이즈 · 살 옷 메모`);
   }
 
   async function importFile(e) {
@@ -319,14 +320,16 @@
     e.target.value = '';
     if (!file) return;
     try {
-      const next = Wardrobe.parseImport(await file.text());
+      const backup = Wardrobe.parseImport(await file.text());
+      const n = backup.wardrobe.length;
       const now = Wardrobe.list().length;
+      const also = backup.labels.length ? `\n${backup.labels.join(' · ')}도 파일 내용으로 바뀌어요.` : '';
       const msg = now
-        ? `지금 옷장(${now}벌)을 파일의 옷 ${next.length}벌로 바꿀까요?\n지금 옷장 내용은 사라져요.`
-        : `파일의 옷 ${next.length}벌을 가져올까요?`;
+        ? `지금 옷장(${now}벌)을 파일의 옷 ${n}벌로 바꿀까요?\n지금 옷장 내용은 사라져요.${also}`
+        : `파일의 옷 ${n}벌을 가져올까요?${also}`;
       if (!window.confirm(msg)) return;
-      Wardrobe.replaceAll(next);
-      setStatus(`${next.length}벌을 가져왔어요.`);
+      Wardrobe.importBackup(backup);
+      setStatus(`가져왔어요: ${[`옷 ${n}벌`, ...backup.labels].join(' · ')}`);
     } catch (err) {
       setStatus(err.message);
     }
@@ -342,4 +345,7 @@
   $('importInput').addEventListener('change', importFile);
   Wardrobe.onChange(renderList);
   renderList();
+
+  // 나 탭(me.js)에서 "샀어요" → 미리 채운 옷 추가 시트를 연다
+  window.Closet = { openEditor };
 })();

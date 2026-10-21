@@ -1,7 +1,7 @@
 /*
  * 옷장 데이터
  * ------------------------------------------------------------
- * 옷 목록은 JSON 배열 하나로 저장한다. 내보내기 파일도 이 배열 그대로다.
+ * 옷 목록은 JSON 배열 하나로 저장한다.
  * 지금은 localStorage 에 두고, 다른 저장소(서버·IndexedDB 등)로 옮길 땐 아래 STORE 의
  * load · save 두 함수만 바꾸면 된다.
  *
@@ -16,6 +16,10 @@
  *     createdAt: 1760000000000,
  *     updatedAt: 1760000000000,
  *   }
+ *
+ * 내보내기 파일: { app, version: 2, wardrobe: [옷 배열], sizes: {…}, shopping: [...] }
+ *  - wardrobe 말고 나머지는 다른 화면이 addBackupPart 로 끼워 넣는다 (me.js 의 사이즈 · 살 옷 메모).
+ *  - 예전 파일(옷 배열만 있는 것)도 그대로 가져올 수 있다.
  */
 (function () {
   const TYPES = { top: '상의', bottom: '하의', outer: '겉옷', acc: '소품' };
@@ -102,6 +106,7 @@
 
   let items = loadItems();
   const listeners = [];
+  const backupParts = {}; // 이름 → { label, get(), set(value) }
 
   // 저장에 성공했을 때만 바꾼 목록을 쓴다
   function commit(next) {
@@ -140,29 +145,50 @@
     commit(items.filter((it) => it.id !== id));
   }
 
-  // 가져오기: 지금 목록을 통째로 바꾼다
-  function replaceAll(next) {
-    commit(next);
+  // 백업 파일에 함께 넣을 데이터 등록. part = { label: '내 사이즈', get() → 값, set(값) }
+  function addBackupPart(name, part) {
+    backupParts[name] = part;
   }
 
   function exportText() {
-    return JSON.stringify(items, null, 2);
+    const data = { app: 'weather-outfit', version: 2, wardrobe: items };
+    for (const [name, part] of Object.entries(backupParts)) data[name] = part.get();
+    return JSON.stringify(data, null, 2);
   }
 
-  // 백업 파일 글자 → 옷 목록. 옷장 파일이 아니면 Error
+  /**
+   * 백업 파일 글자 → { wardrobe: [옷], parts: { 이름: 값 }, labels: ['내 사이즈', …] }
+   * 옷장 파일이 아니면 Error. parts 에는 파일에 들어 있는 것만 담긴다.
+   */
   function parseImport(text) {
     let data;
     try { data = JSON.parse(text); } catch { throw new Error('JSON 파일이 아니에요.'); }
-    const raw = Array.isArray(data) ? data : data?.items;
+    const raw = Array.isArray(data) ? data : (data?.wardrobe ?? data?.items);
     if (!Array.isArray(raw)) throw new Error('옷장 백업 파일이 아니에요.');
     const seen = new Set();
-    const result = raw.map(normalize).filter(Boolean).map((it) => {
+    const wardrobe = raw.map(normalize).filter(Boolean).map((it) => {
       if (seen.has(it.id)) it.id = newId();
       seen.add(it.id);
       return it;
     });
-    if (raw.length && !result.length) throw new Error('파일에서 옷을 찾지 못했어요.');
-    return result;
+    if (raw.length && !wardrobe.length) throw new Error('파일에서 옷을 찾지 못했어요.');
+
+    const parts = {};
+    const labels = [];
+    if (!Array.isArray(data)) {
+      for (const [name, part] of Object.entries(backupParts)) {
+        if (data[name] === undefined) continue;
+        parts[name] = data[name];
+        labels.push(part.label);
+      }
+    }
+    return { wardrobe, parts, labels };
+  }
+
+  // 가져오기: 옷장을 통째로 바꾸고, 파일에 있는 다른 데이터도 바꾼다
+  function importBackup({ wardrobe, parts }) {
+    commit(wardrobe);
+    for (const [name, value] of Object.entries(parts)) backupParts[name].set(value);
   }
 
   function onChange(fn) { listeners.push(fn); }
@@ -200,6 +226,7 @@
 
   window.Wardrobe = {
     TYPES, WARMTH_MIN, WARMTH_MAX,
-    list, get, add, update, remove, replaceAll, exportText, parseImport, onChange, artFor, resizePhoto,
+    list, get, add, update, remove, exportText, parseImport, importBackup, addBackupPart,
+    onChange, artFor, resizePhoto,
   };
 })();
