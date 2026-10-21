@@ -1,0 +1,345 @@
+/*
+ * 옷장 탭 화면
+ * ------------------------------------------------------------
+ * 목록 · 옷 추가/수정 시트 · 백업(내보내기/가져오기).
+ * 데이터는 모두 wardrobe.js 의 Wardrobe 를 거친다.
+ */
+(function () {
+  // 색 팔레트 (이름, 색). 무채색(검정·흰·회·베이지)은 추천에서 뭐든 어울리는 색으로 친다
+  const PALETTE = [
+    ['검정', '#222222'], ['흰색', '#f7f7f4'], ['회색', '#9a9da3'], ['베이지', '#dccbad'],
+    ['네이비', '#1f2d4d'], ['파랑', '#3b6fd8'], ['하늘', '#9cc8ef'], ['초록', '#4f9a5b'],
+    ['카키', '#6f6a3e'], ['갈색', '#7b5536'], ['빨강', '#d8403b'], ['분홍', '#f2a6b9'],
+    ['주황', '#ee8a3a'], ['노랑', '#f3cf4b'], ['보라', '#8a64c4'],
+  ];
+
+  const WARMTH_HINT = {
+    1: '한여름 · 반팔, 반바지, 민소매',
+    2: '늦봄·초가을 · 얇은 긴팔, 면바지, 가디건',
+    3: '봄·가을 · 맨투맨, 청바지, 재킷',
+    4: '쌀쌀할 때 · 니트, 기모, 코트',
+    5: '한겨울 · 패딩, 두꺼운 니트, 목도리',
+  };
+
+  const LONG_PRESS_MS = 450;
+  const HEX = /^#?[0-9a-f]{6}$/i;
+
+  const $ = (id) => document.getElementById(id);
+  const dialog = $('itemDialog');
+  const form = $('itemForm');
+
+  // 편집 중인 옷 (null 이면 새 옷)
+  const edit = { id: null, color: PALETTE[2][1], photo: null };
+
+  /* ===== 목록 ===== */
+
+  function colorDot(color) {
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    dot.style.background = color;
+    return dot;
+  }
+
+  function renderList() {
+    const items = Wardrobe.list();
+    $('closetCount').textContent = items.length ? `${items.length}벌` : '';
+    const host = $('closetList');
+    host.textContent = '';
+
+    if (!items.length) {
+      const empty = document.createElement('p');
+      empty.className = 'closet-empty';
+      empty.textContent = '아직 옷이 없어요. “+ 옷 추가”로 첫 옷을 넣어 보세요. 넣은 옷으로 오늘 탭에서 조합을 추천해요.';
+      host.append(empty);
+      return;
+    }
+
+    for (const [type, label] of Object.entries(Wardrobe.TYPES)) {
+      const group = items
+        .filter((it) => it.type === type)
+        .sort((a, b) => a.warmth - b.warmth || a.name.localeCompare(b.name, 'ko'));
+
+      const section = document.createElement('section');
+      section.className = 'closet-group';
+      const h = document.createElement('h2');
+      h.textContent = label;
+      const n = document.createElement('span');
+      n.textContent = group.length;
+      h.append(' ', n);
+      section.append(h);
+
+      if (!group.length) {
+        const none = document.createElement('p');
+        none.className = 'closet-none';
+        none.textContent = '아직 없어요';
+        section.append(none);
+      } else {
+        const ul = document.createElement('ul');
+        ul.className = 'closet-items';
+        for (const it of group) ul.append(itemRow(it));
+        section.append(ul);
+      }
+      host.append(section);
+    }
+  }
+
+  function itemRow(it) {
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'closet-item';
+    btn.dataset.id = it.id;
+    btn.setAttribute('aria-label', `${it.name}, 따뜻한 정도 ${it.warmth}. 눌러서 수정·삭제`);
+
+    const name = document.createElement('span');
+    name.className = 'ci-name';
+    name.textContent = it.name;
+    btn.append(colorDot(it.color), name);
+
+    if (it.photo) {
+      const img = document.createElement('img');
+      img.className = 'ci-photo';
+      img.src = it.photo;
+      img.alt = '';
+      btn.append(img);
+    }
+
+    const warmth = document.createElement('span');
+    warmth.className = 'ci-warmth';
+    warmth.setAttribute('aria-hidden', 'true');
+    for (let i = 1; i <= Wardrobe.WARMTH_MAX; i++) {
+      const pip = document.createElement('i');
+      if (i <= it.warmth) pip.className = 'on';
+      warmth.append(pip);
+    }
+    btn.append(warmth);
+
+    li.append(btn);
+    return li;
+  }
+
+  // 톡 누르거나 길게 누르면 수정 시트
+  function bindList() {
+    const host = $('closetList');
+    let timer = null;
+    let start = null;
+    let fired = false;
+
+    const cancel = () => { clearTimeout(timer); timer = null; };
+
+    host.addEventListener('pointerdown', (e) => {
+      const row = e.target.closest('.closet-item');
+      if (!row) return;
+      fired = false;
+      start = { x: e.clientX, y: e.clientY };
+      cancel();
+      timer = setTimeout(() => {
+        fired = true;
+        openEditor(row.dataset.id);
+      }, LONG_PRESS_MS);
+    });
+    host.addEventListener('pointermove', (e) => {
+      if (timer && start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) cancel();
+    });
+    host.addEventListener('pointerup', cancel);
+    host.addEventListener('pointercancel', cancel);
+    host.addEventListener('contextmenu', (e) => {
+      if (e.target.closest('.closet-item')) e.preventDefault();
+    });
+    host.addEventListener('click', (e) => {
+      const row = e.target.closest('.closet-item');
+      if (!row) return;
+      if (fired) { fired = false; return; } // 길게 눌러 이미 열었다
+      openEditor(row.dataset.id);
+    });
+  }
+
+  /* ===== 추가 · 수정 시트 ===== */
+
+  function buildSwatches() {
+    const host = $('swatches');
+    for (const [name, color] of PALETTE) {
+      const label = document.createElement('label');
+      label.className = 'swatch';
+      label.title = name;
+      const input = document.createElement('input');
+      input.type = 'radio';
+      input.name = 'swatch';
+      input.value = color;
+      input.setAttribute('aria-label', name);
+      const chip = colorDot(color);
+      label.append(input, chip);
+      host.append(label);
+    }
+  }
+
+  function setColor(color) {
+    edit.color = color.toLowerCase();
+    for (const r of form.querySelectorAll('input[name="swatch"]')) r.checked = r.value === edit.color;
+    $('colorPicker').value = edit.color;
+    if (document.activeElement !== $('colorHex')) $('colorHex').value = edit.color;
+  }
+
+  function setPhoto(dataUrl) {
+    edit.photo = dataUrl;
+    const img = $('photoPreview');
+    img.hidden = !dataUrl;
+    if (dataUrl) img.src = dataUrl; else img.removeAttribute('src');
+    $('photoRemoveBtn').hidden = !dataUrl;
+  }
+
+  function setWarmthHint() {
+    const v = form.elements.warmth.value;
+    $('warmthHint').textContent = v ? `${v} = ${WARMTH_HINT[v]}` : '1 한여름 반팔 ~ 5 패딩';
+  }
+
+  function showDeleteConfirm(show) {
+    $('deleteConfirm').hidden = !show;
+    $('sheetActions').hidden = show;
+  }
+
+  function openEditor(id = null) {
+    const item = id ? Wardrobe.get(id) : null;
+    edit.id = item ? item.id : null;
+    form.reset();
+    $('formError').textContent = '';
+    showDeleteConfirm(false);
+
+    $('itemDialogTitle').textContent = item ? '옷 수정' : '옷 추가';
+    $('deleteBtn').hidden = !item;
+    form.elements.type.value = item ? item.type : '';
+    $('itemName').value = item ? item.name : '';
+    form.elements.warmth.value = item ? String(item.warmth) : '';
+    setColor(item ? item.color : PALETTE[2][1]);
+    setPhoto(item ? item.photo : null);
+    setWarmthHint();
+
+    dialog.showModal();
+    if (!item) $('itemName').blur(); // 열자마자 키보드가 올라오지 않게
+  }
+
+  function closeEditor() {
+    if (dialog.open) dialog.close();
+  }
+
+  function save(e) {
+    e.preventDefault();
+    const fields = {
+      type: form.elements.type.value,
+      name: $('itemName').value.trim(),
+      color: edit.color,
+      warmth: Number(form.elements.warmth.value),
+      photo: edit.photo,
+    };
+    const missing = [!fields.type && '종류', !fields.name && '이름', !fields.warmth && '따뜻한 정도'].filter(Boolean);
+    if (missing.length) {
+      $('formError').textContent = `아직 안 채운 칸: ${missing.join(', ')}`;
+      return;
+    }
+    try {
+      if (edit.id) Wardrobe.update(edit.id, fields);
+      else Wardrobe.add(fields);
+      closeEditor();
+    } catch (err) {
+      $('formError').textContent = err.message;
+    }
+  }
+
+  function bindEditor() {
+    form.addEventListener('submit', save);
+    $('closeDialogBtn').addEventListener('click', closeEditor);
+    // 시트 바깥(어두운 배경)을 누르면 닫기
+    dialog.addEventListener('click', (e) => { if (e.target === dialog) closeEditor(); });
+
+    $('swatches').addEventListener('change', (e) => {
+      if (e.target.name === 'swatch') setColor(e.target.value);
+    });
+    $('colorPicker').addEventListener('input', (e) => setColor(e.target.value));
+    $('colorHex').addEventListener('input', (e) => {
+      const v = e.target.value.trim();
+      if (HEX.test(v)) setColor(v.startsWith('#') ? v : `#${v}`);
+    });
+    $('colorHex').addEventListener('blur', () => { $('colorHex').value = edit.color; });
+
+    form.addEventListener('change', (e) => { if (e.target.name === 'warmth') setWarmthHint(); });
+
+    $('photoInput').addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file) return;
+      try {
+        setPhoto(await Wardrobe.resizePhoto(file));
+        $('formError').textContent = '';
+      } catch (err) {
+        $('formError').textContent = err.message;
+      }
+    });
+    $('photoRemoveBtn').addEventListener('click', () => setPhoto(null));
+
+    $('deleteBtn').addEventListener('click', () => {
+      $('deleteName').textContent = Wardrobe.get(edit.id)?.name ?? '';
+      showDeleteConfirm(true);
+    });
+    $('deleteCancelBtn').addEventListener('click', () => showDeleteConfirm(false));
+    $('deleteOkBtn').addEventListener('click', () => {
+      try {
+        Wardrobe.remove(edit.id);
+        closeEditor();
+      } catch (err) {
+        showDeleteConfirm(false);
+        $('formError').textContent = err.message;
+      }
+    });
+  }
+
+  /* ===== 백업 ===== */
+
+  function setStatus(text) {
+    $('backupStatus').textContent = text;
+  }
+
+  function exportFile() {
+    const count = Wardrobe.list().length;
+    if (!count) { setStatus('내보낼 옷이 없어요.'); return; }
+    const blob = new Blob([Wardrobe.exportText()], { type: 'application/json' });
+    const d = new Date();
+    const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `옷장-${ymd}.json`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    setStatus(`${count}벌을 파일로 내보냈어요.`);
+  }
+
+  async function importFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const next = Wardrobe.parseImport(await file.text());
+      const now = Wardrobe.list().length;
+      const msg = now
+        ? `지금 옷장(${now}벌)을 파일의 옷 ${next.length}벌로 바꿀까요?\n지금 옷장 내용은 사라져요.`
+        : `파일의 옷 ${next.length}벌을 가져올까요?`;
+      if (!window.confirm(msg)) return;
+      Wardrobe.replaceAll(next);
+      setStatus(`${next.length}벌을 가져왔어요.`);
+    } catch (err) {
+      setStatus(err.message);
+    }
+  }
+
+  /* ===== 시작 ===== */
+
+  buildSwatches();
+  bindList();
+  bindEditor();
+  $('addBtn').addEventListener('click', () => openEditor());
+  $('exportBtn').addEventListener('click', exportFile);
+  $('importInput').addEventListener('change', importFile);
+  Wardrobe.onChange(renderList);
+  renderList();
+})();

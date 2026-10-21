@@ -67,6 +67,41 @@ const OUTFIT_TABLE = [
   },
 ];
 
+/*
+ * 온도 구간 ↔ 옷장 옷의 따뜻한 정도(1 한여름 반팔 ~ 5 패딩)
+ * ------------------------------------------------------------
+ * 옷장에 옷이 있으면 이 표의 범위 [최소, 최대] 에 드는 옷으로 조합을 만든다.
+ *  - min 은 OUTFIT_TABLE 과 같은 구간. 높은 온도 순서를 지킬 것.
+ *  - null 이면 그 칸은 필요 없음 (OUTFIT_TABLE 에서 null 인 칸과 맞춘다).
+ *  - 상의 · 하의 · 겉옷 중 맞는 옷이 하나라도 없으면 OUTFIT_TABLE 기본 추천을 보여준다.
+ *    소품만 없으면 소품 칸은 기본 추천으로 채운다.
+ */
+const WARMTH_TABLE = [
+  //  구간               상의      하의      겉옷      소품
+  { min: 28,        top: [1, 1], bottom: [1, 1], outer: null,   acc: [1, 2] },
+  { min: 23,        top: [1, 2], bottom: [1, 2], outer: null,   acc: [1, 2] },
+  { min: 20,        top: [2, 2], bottom: [2, 3], outer: [1, 2], acc: null },
+  { min: 17,        top: [2, 3], bottom: [2, 3], outer: [2, 3], acc: null },
+  { min: 12,        top: [3, 3], bottom: [3, 3], outer: [3, 3], acc: [2, 3] },
+  { min: 9,         top: [3, 4], bottom: [3, 4], outer: [3, 4], acc: [3, 3] },
+  { min: 5,         top: [4, 4], bottom: [4, 4], outer: [4, 4], acc: [4, 4] },
+  { min: -Infinity, top: [4, 5], bottom: [4, 5], outer: [5, 5], acc: [4, 5] },
+];
+
+/*
+ * 색 조합 규칙
+ *  - 상의와 하의가 같은 색 계열이면 피한다 (그런 조합만 있으면 그래도 보여준다).
+ *  - 무채색(검정 · 흰 · 회 · 베이지)은 뭐든 어울린다.
+ * 색 계열은 색상(hue, 0~360) 범위로 나눈다. max 미만이면 그 계열.
+ */
+const COLOR_FAMILIES = [
+  { name: 'red', max: 15 }, { name: 'orange', max: 45 }, { name: 'yellow', max: 70 },
+  { name: 'green', max: 165 }, { name: 'blue', max: 255 }, { name: 'purple', max: 290 },
+  { name: 'pink', max: 345 }, { name: 'red', max: 361 },
+];
+
+const SLOT_LABEL = { top: '상의', bottom: '하의', outer: '겉옷', acc: '소품' };
+
 // 비가 올 때 소품 칸에 더해지는 품목
 const RAIN_ITEM = { icon: '☂️', name: '우산', art: 'umbrella' };
 
@@ -108,6 +143,7 @@ const state = {
   sense: 'normal',
   sliderTemp: 20,     // 슬라이더 값
   custom: false,      // 슬라이더로 다른 온도를 보고 있는지
+  combo: { key: '', index: 0 }, // 옷장 추천: 지금 보여주는 조합 번호 ("다른 조합")
 };
 
 const $ = (id) => document.getElementById(id);
@@ -229,6 +265,101 @@ function findBand(temp) {
   return OUTFIT_TABLE.find((band) => temp >= band.min) || OUTFIT_TABLE[OUTFIT_TABLE.length - 1];
 }
 
+/* ===== 옷장에서 조합 고르기 ===== */
+
+function hexToHsl(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (!d) return { h: 0, s: 0, l };
+  const s = d / (1 - Math.abs(2 * l - 1));
+  let h;
+  if (max === r) h = ((g - b) / d) % 6;
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return { h: (h * 60 + 360) % 360, s, l };
+}
+
+// 'neutral'(무채색) 또는 COLOR_FAMILIES 의 이름
+function colorFamily(hex) {
+  const { h, s, l } = hexToHsl(hex);
+  if (s < 0.12 || l < 0.13 || l > 0.93) return 'neutral';           // 검정 · 흰 · 회
+  if (h >= 20 && h <= 50 && s < 0.5 && l > 0.65) return 'neutral';  // 베이지
+  return COLOR_FAMILIES.find((f) => h < f.max).name;
+}
+
+function colorsGo(combo) {
+  if (!combo.top || !combo.bottom) return true;
+  const a = colorFamily(combo.top.color);
+  const b = colorFamily(combo.bottom.color);
+  return a === 'neutral' || b === 'neutral' || a !== b;
+}
+
+// 같은 날 같은 구간이면 같은 순서로 섞는다 (날마다 첫 추천이 바뀌게)
+function seededShuffle(list, seedText) {
+  let seed = 0;
+  for (const ch of seedText) seed = (seed * 31 + ch.charCodeAt(0)) | 0;
+  const rand = () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const out = list.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+/**
+ * 옷장 옷으로 조합 만들기
+ *  - 옷장이 비었으면 { empty: true }
+ *  - 맞는 옷이 없는 칸이 있으면 { missing: ['겉옷'] }
+ *  - 아니면 { combo: { top, bottom, outer, acc }, index, count } (각 값은 옷장 옷 또는 null)
+ */
+function pickFromCloset(temp) {
+  const items = Wardrobe.list();
+  if (!items.length) return { empty: true };
+
+  const row = WARMTH_TABLE.find((r) => temp >= r.min) || WARMTH_TABLE[WARMTH_TABLE.length - 1];
+  const pools = {};
+  const missing = [];
+  for (const slot of Object.keys(SLOT_LABEL)) {
+    const range = row[slot];
+    const fits = range
+      ? items.filter((it) => it.type === slot && it.warmth >= range[0] && it.warmth <= range[1])
+      : [];
+    if (fits.length) pools[slot] = fits;
+    else if (range && slot !== 'acc') missing.push(SLOT_LABEL[slot]);
+    else pools[slot] = [null];
+  }
+  if (missing.length) return { missing };
+
+  const all = [];
+  for (const top of pools.top)
+    for (const bottom of pools.bottom)
+      for (const outer of pools.outer)
+        for (const acc of pools.acc) all.push({ top, bottom, outer, acc });
+  const good = all.filter(colorsGo);
+  const today = new Date().toDateString();
+  const combos = seededShuffle(good.length ? good : all, `${today}|${row.min}`);
+
+  // 구간이 바뀌면 첫 조합부터
+  const key = String(row.min);
+  if (state.combo.key !== key) state.combo = { key, index: 0 };
+  const index = state.combo.index % combos.length;
+  return { combo: combos[index], index, count: combos.length };
+}
+
+// 옷장 옷 → 추천 칸에 쓰는 모양 (캐릭터는 기존 그림에 옷 색만 입힌다)
+function closetItem(it) {
+  return { name: it.name, color: it.color, art: { art: Wardrobe.artFor(it), color: it.color } };
+}
+
 // 지금 추천에 쓰는 기준 온도 (보정 전)
 function baseTemp() {
   if (!state.custom && state.weather) return Math.round(state.weather.feels);
@@ -281,14 +412,21 @@ function renderOutfit() {
   }
   basis.append(` · ${band.label}`);
 
+  // 옷장에 맞는 옷이 있으면 그걸로, 없으면 OUTFIT_TABLE 기본 추천
+  const pick = pickFromCloset(target);
+  const picked = pick.combo
+    ? {
+      top: closetItem(pick.combo.top),
+      bottom: closetItem(pick.combo.bottom),
+      outer: pick.combo.outer ? closetItem(pick.combo.outer) : null,
+      acc: pick.combo.acc ? closetItem(pick.combo.acc) : band.acc,
+    }
+    : { top: band.top, bottom: band.bottom, outer: band.outer, acc: band.acc };
+  renderClosetNote(pick);
+
   // 비가 오면 소품 칸에 우산 추가
   const rainy = state.weather?.isRain;
-  const items = {
-    top: band.top,
-    bottom: band.bottom,
-    outer: band.outer,
-    acc: rainy ? mergeItems(RAIN_ITEM, band.acc) : band.acc,
-  };
+  const items = { ...picked, acc: rainy ? mergeItems(RAIN_ITEM, picked.acc) : picked.acc };
 
   // 캐릭터: 같은 품목을 그림으로 (겉옷이 null 이면 그 층은 비운다)
   Character.render($('figure'), {
@@ -310,7 +448,14 @@ function renderOutfit() {
     const prev = name.textContent;
 
     slot.classList.toggle('is-empty', !item);
-    icon.textContent = item ? item.icon : '—';
+    icon.textContent = item ? (item.icon ?? '') : '—';
+    if (item?.color) {
+      // 옷장 옷은 색 동그라미로
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = item.color;
+      icon.append(dot);
+    }
     name.textContent = item ? item.name : '필요 없음';
 
     // 품목이 바뀐 칸만 살짝 반짝
@@ -322,12 +467,22 @@ function renderOutfit() {
   }
 }
 
+// "다른 조합" 버튼 · 옷장 안내
+function renderClosetNote(pick) {
+  const more = $('nextComboBtn');
+  more.hidden = !(pick.combo && pick.count > 1);
+  if (pick.combo) $('comboCount').textContent = `${pick.index + 1}/${pick.count}`;
+  $('closetHint').hidden = Boolean(pick.combo);
+  $('closetMissing').textContent = pick.missing ? ` (이 온도에 맞는 ${pick.missing.join('·')} 없음)` : '';
+}
+
 // 우산 + 기존 소품을 한 칸에 합친다
 function mergeItems(extra, base) {
   if (!base) return extra;
   return {
-    icon: `${extra.icon}${base.icon}`,
+    icon: `${extra.icon}${base.icon ?? ''}`,
     name: `${extra.name} · ${base.name}`,
+    color: base.color,
     art: [].concat(extra.art ?? [], base.art ?? []), // 우산을 먼저 그려야 장갑이 손잡이 위로 온다
   };
 }
@@ -360,10 +515,39 @@ function toggleMenu(open) {
   btn.setAttribute('aria-expanded', String(willOpen));
 }
 
+/* ===== 하단 탭 (주소 #today · #closet · #me) ===== */
+
+const TABS = ['today', 'closet', 'me'];
+
+function showTab() {
+  const hash = location.hash.slice(1);
+  const tab = TABS.includes(hash) ? hash : 'today';
+  for (const view of document.querySelectorAll('.view')) view.hidden = view.dataset.view !== tab;
+  for (const link of document.querySelectorAll('.tab')) {
+    if (link.dataset.tab === tab) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  }
+  toggleMenu(false);
+  window.scrollTo(0, 0);
+}
+
 /* ===== 이벤트 연결 ===== */
 
 function init() {
+  showTab();
+  window.addEventListener('hashchange', showTab);
+
   setSense(storageGet(SENSE_KEY) || 'normal', false);
+
+  $('nextComboBtn').addEventListener('click', () => {
+    state.combo.index += 1;
+    renderOutfit();
+  });
+  // 옷장이 바뀌면 첫 조합부터 다시
+  Wardrobe.onChange(() => {
+    state.combo = { key: '', index: 0 };
+    renderOutfit();
+  });
 
   $('slider').addEventListener('input', (e) => {
     state.sliderTemp = Number(e.target.value);

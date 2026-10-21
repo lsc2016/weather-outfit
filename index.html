@@ -21,6 +21,9 @@
 <body>
   <main class="app">
 
+    <!-- ===== 탭 1. 오늘 ===== -->
+    <div class="view" data-view="today">
+
     <!-- 우상단 설정: 체감 보정 -->
     <header class="topbar">
       <span class="place" id="place">위치 확인 중…</span>
@@ -58,6 +61,10 @@
         <li class="slot" data-slot="outer"><span class="slot-label">겉옷</span><span class="slot-icon"></span><span class="slot-name"></span></li>
         <li class="slot" data-slot="acc"><span class="slot-label">소품</span><span class="slot-icon"></span><span class="slot-name"></span></li>
       </ul>
+      <div class="outfit-more">
+        <button type="button" class="chip-btn" id="nextComboBtn" hidden>↻ 다른 조합 <span id="comboCount"></span></button>
+        <p class="closet-hint" id="closetHint" hidden><a href="#closet">옷장</a>에 추가하면 내 옷으로 추천해요<span id="closetMissing"></span></p>
+      </div>
     </section>
 
     <!-- 3. 부 영역: 다른 온도로 보기 -->
@@ -76,9 +83,125 @@
       <button type="button" class="link-btn" id="refreshBtn">새로 고침</button>
       <span>· 날씨 Open-Meteo</span>
     </footer>
+    </div>
+
+    <!-- ===== 탭 2. 옷장 ===== -->
+    <div class="view" data-view="closet" hidden>
+      <header class="view-head">
+        <h1>옷장</h1>
+        <span class="view-count" id="closetCount"></span>
+      </header>
+      <button type="button" class="primary-btn add-btn" id="addBtn">+ 옷 추가</button>
+      <div id="closetList"></div>
+
+      <section class="backup" aria-labelledby="backupTitle">
+        <h2 id="backupTitle">백업</h2>
+        <p class="backup-note">옷장을 파일로 저장해 두면, 실수로 지워도 가져오기로 되돌릴 수 있어요.</p>
+        <div class="backup-btns">
+          <button type="button" class="ghost-btn" id="exportBtn">내보내기</button>
+          <label class="ghost-btn">가져오기<input type="file" id="importInput" accept="application/json,.json" hidden></label>
+        </div>
+        <p class="backup-status" id="backupStatus" role="status"></p>
+      </section>
+    </div>
+
+    <!-- ===== 탭 3. 나 ===== -->
+    <div class="view" data-view="me" hidden>
+      <header class="view-head"><h1>나</h1></header>
+      <div class="placeholder">준비 중</div>
+    </div>
   </main>
 
+  <!-- 하단 탭 -->
+  <nav class="tabbar" aria-label="화면">
+    <div class="tabbar-inner">
+      <a class="tab" href="#today" data-tab="today">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>
+        오늘
+      </a>
+      <a class="tab" href="#closet" data-tab="closet">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7.2a2 2 0 1 1 2-2c0 1.1-2 1.4-2 3v.6L3.2 15a1.4 1.4 0 0 0 .8 2.6h16a1.4 1.4 0 0 0 .8-2.6L12 8.8"/></svg>
+        옷장
+      </a>
+      <a class="tab" href="#me" data-tab="me">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5c.8-4 3.8-6 7.5-6s6.7 2 7.5 6"/></svg>
+        나
+      </a>
+    </div>
+  </nav>
+
+  <!-- 옷 추가 · 수정 시트 -->
+  <dialog class="sheet" id="itemDialog" aria-labelledby="itemDialogTitle">
+    <form id="itemForm" novalidate>
+      <header class="sheet-head">
+        <h2 id="itemDialogTitle">옷 추가</h2>
+        <button type="button" class="link-btn" id="closeDialogBtn">닫기</button>
+      </header>
+
+      <fieldset class="field">
+        <legend>종류</legend>
+        <div class="seg">
+          <label><input type="radio" name="type" value="top" required><span>상의</span></label>
+          <label><input type="radio" name="type" value="bottom"><span>하의</span></label>
+          <label><input type="radio" name="type" value="outer"><span>겉옷</span></label>
+          <label><input type="radio" name="type" value="acc"><span>소품</span></label>
+        </div>
+      </fieldset>
+
+      <label class="field">
+        <span class="field-label">이름</span>
+        <input type="text" name="name" id="itemName" maxlength="40" required autocomplete="off" placeholder="예) 회색 맨투맨">
+      </label>
+
+      <fieldset class="field">
+        <legend>색</legend>
+        <div class="swatches" id="swatches"></div>
+        <div class="color-custom">
+          <label class="custom-pick"><input type="color" id="colorPicker" value="#9a9da3"> 직접 고르기</label>
+          <input type="text" id="colorHex" maxlength="7" spellcheck="false" autocomplete="off" aria-label="색 코드 직접 입력" placeholder="#rrggbb">
+        </div>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>따뜻한 정도</legend>
+        <div class="seg">
+          <label><input type="radio" name="warmth" value="1" required><span>1</span></label>
+          <label><input type="radio" name="warmth" value="2"><span>2</span></label>
+          <label><input type="radio" name="warmth" value="3"><span>3</span></label>
+          <label><input type="radio" name="warmth" value="4"><span>4</span></label>
+          <label><input type="radio" name="warmth" value="5"><span>5</span></label>
+        </div>
+        <p class="field-hint" id="warmthHint"></p>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>사진 <small>(선택)</small></legend>
+        <div class="photo-row">
+          <img class="photo-preview" id="photoPreview" alt="올린 사진" hidden>
+          <label class="ghost-btn">사진 올리기<input type="file" id="photoInput" accept="image/*" hidden></label>
+          <button type="button" class="link-btn" id="photoRemoveBtn" hidden>사진 빼기</button>
+        </div>
+      </fieldset>
+
+      <p class="form-error" id="formError" role="alert"></p>
+
+      <div class="sheet-actions" id="sheetActions">
+        <button type="button" class="danger-btn" id="deleteBtn" hidden>삭제</button>
+        <button type="submit" class="primary-btn">저장</button>
+      </div>
+      <div class="confirm" id="deleteConfirm" hidden>
+        <p>‘<b id="deleteName"></b>’을(를) 삭제할까요?</p>
+        <div class="sheet-actions">
+          <button type="button" class="ghost-btn" id="deleteCancelBtn">취소</button>
+          <button type="button" class="danger-btn" id="deleteOkBtn">삭제</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
   <script src="character.js"></script>
+  <script src="wardrobe.js"></script>
+  <script src="closet.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -8,7 +8,8 @@
  *  1. 아래 PIECES 에 새 이름으로 함수를 하나 추가한다. 함수는 SVG 조각 문자열을 돌려준다.
  *       예) PIECES.hoodie = () => sleeves(LONG, 'var(--c-hoodie)') + topBody('var(--c-hoodie)') + ...
  *  2. 색은 style.css 의 "캐릭터 색" 토큰(--c-…)에 추가하고, 다크모드 쪽에도 같은 이름으로 넣는다.
- *  3. app.js OUTFIT_TABLE 에서 그 품목의 art 를 새 이름으로 바꾼다.
+ *  3. 옷장 옷 색으로 바꿔 입힐 수 있게 PIECE_COLOR 에 그 그림이 쓰는 색 토큰 이름을 적는다.
+ *  4. app.js OUTFIT_TABLE 에서 그 품목의 art 를 새 이름으로 바꾼다.
  *       예) top: { icon: '👕', name: '후드티', art: 'hoodie' }
  *     소품처럼 여러 개를 겹칠 땐 배열로: art: ['muffler', 'gloves']
  *
@@ -216,6 +217,18 @@
       `<circle cx="145.6" cy="168.6" r="8.5" ${SKIN} ${S}/>`,
   };
 
+  // 옷장 옷 색으로 입힐 때 바꿔 끼우는 색 토큰 (그림 이름 → 토큰)
+  const PIECE_COLOR = {
+    tank: '--c-tank', tshirt: '--c-tee', longsleeve: '--c-long', sweatshirt: '--c-sweat',
+    knit: '--c-knit', shirt: '--c-shirt',
+    shorts: '--c-shorts', slacks: '--c-slacks', jeans: '--c-jeans', warmpants: '--c-warm',
+    cardigan: '--c-cardigan', windbreaker: '--c-wind', jacket: '--c-jacket', trench: '--c-trench',
+    coat: '--c-coat', padding: '--c-padding',
+    sunglasses: '--c-glasses', cap: '--c-cap', beanie: '--c-beanie', scarf: '--c-scarf',
+    muffler: '--c-muffler', gloves: '--c-gloves', umbrella: '--c-umbrella',
+  };
+  const HEX = /^#[0-9a-f]{6}$/i;
+
   /* ===== 그리기 ===== */
 
   const LAYERS = ['bottom', 'top', 'outer', 'acc']; // 아래에서 위로 겹치는 순서
@@ -228,6 +241,13 @@
       return '';
     }
     return piece();
+  }
+
+  // { art: 'jeans', color: '#334455' } → 그 색 토큰만 바꿔 끼운 그림
+  function drawSpec({ art, color }) {
+    const markup = drawPiece(art);
+    if (!color || !HEX.test(color) || !PIECE_COLOR[art]) return markup;
+    return `<g style="${PIECE_COLOR[art]}:${color}">${markup}</g>`;
   }
 
   // 층 하나를 새 그림으로 바꾼다 (짧게 겹쳐 사라지고 나타나기)
@@ -266,6 +286,7 @@
    * host 안에 캐릭터를 그린다.
    * outfit = { bottom: 'jeans', top: 'knit', outer: null, acc: ['umbrella', 'muffler'] }
    * 각 값은 그림 이름 하나, 이름 배열, 또는 null(그리지 않음).
+   * 이름 대신 { art: 'jeans', color: '#334455' } 를 주면 그 색으로 입힌다 (옷장 옷).
    */
   function render(host, outfit) {
     let svg = host.querySelector('svg');
@@ -280,12 +301,13 @@
 
     for (const name of LAYERS) {
       const value = outfit[name];
-      const keys = value == null ? [] : [].concat(value);
-      const sig = keys.join('+');
+      const specs = (value == null ? [] : [].concat(value))
+        .map((v) => (typeof v === 'string' ? { art: v } : v));
+      const sig = specs.map((sp) => (sp.color ? `${sp.art}:${sp.color}` : sp.art)).join('+');
       const layer = svg.querySelector(`[data-layer="${name}"]`);
       if (layer.dataset.sig === sig) continue; // 바뀐 층만 다시 그린다
       layer.dataset.sig = sig;
-      swapLayer(layer, keys.map(drawPiece).join(''));
+      swapLayer(layer, specs.map(drawSpec).join(''));
     }
   }
 
