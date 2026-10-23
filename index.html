@@ -239,13 +239,25 @@
       <div class="field-row">
         <label class="field">
           <span class="field-label">라벨 사이즈 <small>(선택)</small></span>
-          <input type="text" id="itemSize" maxlength="12" autocomplete="off" placeholder="100, L, 32, 270">
+          <span class="input-with-btn">
+            <input type="text" id="itemSize" maxlength="12" autocomplete="off" placeholder="L, 100">
+            <!-- 택 찍기: 사진은 읽기에만 쓰고 저장하지 않는다 (tag-reader.js) -->
+            <button type="button" class="tag-btn" id="tagBtn" aria-label="택 찍기: 사진에서 사이즈와 브랜드 읽기">📷 택 찍기</button>
+          </span>
         </label>
         <label class="field">
           <span class="field-label">브랜드 <small>(선택)</small></span>
           <input type="text" id="itemBrand" maxlength="30" autocomplete="off" list="brandList" placeholder="예) 유니클로">
         </label>
         <datalist id="brandList"></datalist>
+      </div>
+      <input type="file" id="tagInput" accept="image/*" hidden>
+
+      <!-- 택 읽기 결과: 칸에만 채우고, 저장은 아래 저장 버튼으로 -->
+      <div class="tag-panel" id="tagPanel" hidden>
+        <p class="tag-status" id="tagStatus" role="status"></p>
+        <progress id="tagProgress" max="1" value="0"></progress>
+        <div class="tag-choices" id="tagSizes" hidden></div>
       </div>
 
       <details class="measure-box" id="measureBox">
@@ -262,6 +274,11 @@
           <button type="button" class="link-btn" id="photoRemoveBtn" hidden>사진 빼기</button>
         </div>
       </fieldset>
+
+      <details class="tag-text" id="tagText" hidden>
+        <summary>읽은 글자 보기 <small>줄을 누르면 라벨 사이즈나 브랜드에 넣어요</small></summary>
+        <ul class="tag-lines" id="tagLines"></ul>
+      </details>
 
       <p class="form-error" id="formError" role="alert"></p>
 
@@ -281,6 +298,7 @@
 
   <script src="character.js"></script>
   <script src="wardrobe.js"></script>
+  <script src="tag-reader.js"></script>
   <script src="closet.js"></script>
   <script src="me.js"></script>
   <script src="app.js"></script>

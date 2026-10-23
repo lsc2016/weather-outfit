@@ -264,6 +264,154 @@
     }
   }
 
+  /* --- 택 찍기: 읽은 값은 칸에만 채우고, 저장은 저장 버튼으로 --- */
+
+  const TAG_STAGE = {
+    prepare: '사진 손질 중…',
+    load: '글자 읽기 준비 중… (처음 한 번은 언어 파일을 받느라 느려요)',
+    read: '읽는 중…',
+  };
+  let tagRun = 0; // 시트를 닫거나 다시 찍으면 이전 읽기 결과는 버린다
+
+  function resetTag() {
+    tagRun++;
+    $('tagPanel').hidden = true;
+    $('tagSizes').hidden = true;
+    $('tagSizes').textContent = '';
+    $('tagText').hidden = true;
+    $('tagText').open = false;
+    $('tagLines').textContent = '';
+    $('tagBtn').disabled = false;
+    $('itemSize').classList.remove('from-tag');
+    $('itemBrand').classList.remove('from-tag');
+  }
+
+  // 택에서 읽은 값은 강조 테두리로 "확인해 주세요" 표시 (손으로 고치면 사라짐)
+  function fillFromTag(id, value) {
+    const input = $(id);
+    input.value = value.trim().slice(0, input.maxLength);
+    input.classList.add('from-tag');
+  }
+
+  function tagStatus(text) {
+    $('tagStatus').textContent = text;
+  }
+
+  async function scanTag(file) {
+    const run = ++tagRun;
+    $('tagBtn').disabled = true;
+    $('tagPanel').hidden = false;
+    $('tagSizes').hidden = true;
+    $('tagText').hidden = true;
+    const bar = $('tagProgress');
+    bar.hidden = false;
+    bar.value = 0;
+    tagStatus('읽는 중…');
+    try {
+      const result = await TagReader.read(file, {
+        type: form.elements.type.value,
+        brands: Wardrobe.brands(),
+        progress: ({ stage, progress }) => {
+          if (run !== tagRun) return;
+          tagStatus(TAG_STAGE[stage]);
+          bar.value = progress;
+        },
+      });
+      if (run === tagRun) showTagResult(result);
+    } catch (err) {
+      if (run === tagRun) tagStatus(err.message);
+    } finally {
+      if (run === tagRun) {
+        $('tagBtn').disabled = false;
+        bar.hidden = true;
+      }
+    }
+  }
+
+  function showTagResult({ lines, sizes, brand }) {
+    if (!lines.length) {
+      tagStatus('글자를 못 읽었어요. 택을 펴서 밝은 데서 다시 찍어 보세요.');
+      return;
+    }
+    renderTagLines(lines);
+
+    // 사이즈: 지금 종류에 맞는 후보가 하나면 채우고, 여럿이면 고르는 버튼
+    const fitting = sizes.filter((f) => f.fits);
+    const filled = [];
+    let choose = false;
+    if (fitting.length === 1) {
+      fillFromTag('itemSize', fitting[0].value);
+      filled.push(`사이즈 ${fitting[0].value}`);
+    } else if (sizes.length) {
+      renderSizeChoices((fitting.length ? fitting : sizes).slice(0, 6));
+      choose = true;
+    }
+    if (brand) {
+      fillFromTag('itemBrand', brand);
+      filled.push(`브랜드 ${brand}`);
+    } else {
+      $('tagText').open = true; // 브랜드는 읽은 줄에서 골라 넣게
+    }
+
+    const msg = [];
+    if (filled.length) msg.push(`택에서 읽었어요: ${filled.join(' · ')}. 맞는지 확인하고 저장해 주세요.`);
+    if (choose) msg.push('사이즈 후보가 여럿이에요. 맞는 것을 눌러 주세요.');
+    else if (!sizes.length) msg.push('사이즈는 못 찾았어요.');
+    if (!brand) msg.push('브랜드는 아래 “읽은 글자 보기”에서 줄을 눌러 넣을 수 있어요.');
+    tagStatus(msg.join(' '));
+  }
+
+  function renderSizeChoices(list) {
+    const host = $('tagSizes');
+    host.textContent = '';
+    host.hidden = false;
+    host.append(Object.assign(document.createElement('span'), { className: 'tag-choices-label', textContent: '사이즈 후보' }));
+    for (const f of list) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'filter-chip';
+      b.textContent = f.value;
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', () => {
+        fillFromTag('itemSize', f.value);
+        for (const x of host.querySelectorAll('button')) x.setAttribute('aria-pressed', String(x === b));
+      });
+      host.append(b);
+    }
+  }
+
+  // 읽은 줄 → 톡 누르면 "라벨 사이즈에 / 브랜드에" 고르기
+  function renderTagLines(lines) {
+    const host = $('tagLines');
+    host.textContent = '';
+    $('tagText').hidden = false;
+    for (const line of lines) {
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'tag-line';
+      btn.textContent = line;
+      btn.addEventListener('click', () => {
+        const open = li.querySelector('.tag-pick');
+        host.querySelectorAll('.tag-pick').forEach((n) => n.remove());
+        if (open) return; // 같은 줄을 다시 누르면 닫기
+        const pick = document.createElement('div');
+        pick.className = 'tag-pick';
+        for (const [label, id] of [['라벨 사이즈에', 'itemSize'], ['브랜드에', 'itemBrand']]) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'chip-btn';
+          b.textContent = label;
+          b.addEventListener('click', () => { fillFromTag(id, line); pick.remove(); });
+          pick.append(b);
+        }
+        li.append(pick);
+      });
+      li.append(btn);
+      host.append(li);
+    }
+  }
+
   function showDeleteConfirm(show) {
     $('deleteConfirm').hidden = !show;
     $('sheetActions').hidden = show;
@@ -292,12 +440,14 @@
     fillBrandList();
     renderMeasureFields(start.type, start.measures || {});
     $('measureBox').open = false;
+    resetTag();
 
     dialog.showModal();
     if (!item) $('itemName').blur(); // 열자마자 키보드가 올라오지 않게
   }
 
   function closeEditor() {
+    tagRun++; // 읽는 중이던 결과는 버린다
     if (dialog.open) dialog.close();
   }
 
@@ -371,6 +521,16 @@
       }
     });
     $('photoRemoveBtn').addEventListener('click', () => setPhoto(null));
+
+    $('tagBtn').addEventListener('click', () => $('tagInput').click());
+    $('tagInput').addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (file) scanTag(file);
+    });
+    for (const id of ['itemSize', 'itemBrand']) {
+      $(id).addEventListener('input', () => $(id).classList.remove('from-tag'));
+    }
 
     $('deleteBtn').addEventListener('click', () => {
       $('deleteName').textContent = Wardrobe.get(edit.id)?.name ?? '';
