@@ -5,23 +5,55 @@
  * (wardrobe.js 의 addBackupPart). 옷장 분석은 입력 없이 옷장에서 바로 계산한다.
  *
  * 고치기 쉬운 표는 아래에 모아 두었다.
- *  - SIZE_FIELDS       : 사이즈 항목 (순서 · 이름 · 단위)
+ *  - SIZE_FIELDS       : 직접 적는 사이즈 항목 (순서 · 이름 · 단위)
+ *  - FIT_SIZE_TYPES · LETTER_SIZES · FIT_NOTES · BODY_ESTIMATES · MEASURE_GUIDE
+ *                      : "옷장에서 본 내 사이즈" 계산 규칙
  *  - COLOR_GROUPS      : 색 분포에 쓰는 색 계열과 나누는 기준
  *  - SUGGESTION_RULES  : 빈 자리 제안 규칙
  *  - GAP_IDEAS         : 따뜻한 정도 빈칸을 채울 옷 이름
  */
 (function () {
-  /* ===== 내 사이즈 항목 ===== */
+  /* ===== 직접 적는 사이즈 항목 ===== */
+  // main: 늘 보이는 칸 (나머지는 "직접 적은 값"에 접혀 있다)
   // numeric: 숫자 자판 / wide: 한 줄 전체 / multiline: 여러 줄
   const SIZE_FIELDS = [
-    { key: 'height', label: '키', unit: 'cm', numeric: true },
-    { key: 'weight', label: '몸무게', unit: 'kg', numeric: true },
+    { key: 'height', label: '키', unit: 'cm', numeric: true, main: true },
+    { key: 'weight', label: '몸무게', unit: 'kg', numeric: true, main: true },
     { key: 'top',    label: '상의', placeholder: 'S · M · L · XL · 95…' },
     { key: 'waist',  label: '바지 허리', unit: '인치', numeric: true },
     { key: 'length', label: '바지 기장', unit: 'cm', numeric: true },
     { key: 'shoe',   label: '신발', unit: 'mm', numeric: true },
     { key: 'memo',   label: '메모', wide: true, multiline: true, max: 200, placeholder: '예) 어깨 넓어서 한 치수 위' },
   ];
+
+  /* ===== 옷장에서 본 내 사이즈: 계산 규칙 =====
+   * 옷 추가 시트에서 "딱 맞음"을 고른 옷이 기준이다.
+   */
+
+  // 보여줄 종류와 이름 (순서대로)
+  const FIT_SIZE_TYPES = [
+    ['top', '상의'], ['bottom', '하의'], ['outer', '겉옷'], ['acc', '신발·소품'],
+  ];
+
+  // 글자 사이즈 순서 (범위 "M~L" 를 만들 때 씀)
+  const LETTER_SIZES = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
+  // 다른 표기 → 위 순서 안의 이름
+  const LETTER_ALIASES = { '2XL': 'XXL', '3XL': 'XXXL', '2XS': 'XXS' };
+
+  // 조금 큼 · 조금 작음 옷에 붙이는 참고 문구
+  const FIT_NOTES = {
+    big: '한 치수 아래가 맞을 수 있음',
+    small: '한 치수 위가 맞을 수 있음',
+  };
+
+  // 몸 둘레 추정 (참고용). from 종류의 딱 맞음 옷에서 measure 치수(cm)를 가져와 calc 로 바꾼다
+  const BODY_ESTIMATES = [
+    { label: '가슴둘레', from: 'top',    measure: 'chest', calc: (v) => v * 2 - 10 },
+    { label: '허리둘레', from: 'bottom', measure: 'waist', calc: (v) => v * 2 - 2, inch: true },
+  ];
+
+  // 치수 넣은 딱 맞음 옷이 없을 때 안내
+  const MEASURE_GUIDE = '제일 잘 맞는 상의·하의 한 벌씩만 펴서 재 보세요.';
 
   /* ===== 색 계열 =====
    * 위에서부터 차례로 맞춰 보고 처음 맞는 계열에 넣는다.
@@ -220,9 +252,156 @@
   }
 
   function renderSizes() {
-    const host = $('sizes');
+    const main = $('sizes');
+    const more = $('sizesMore');
+    main.textContent = '';
+    more.textContent = '';
+    for (const f of SIZE_FIELDS) (f.main ? main : more).append(sizeCard(f));
+  }
+
+  /* ===== 1-1. 옷장에서 본 내 사이즈 ===== */
+
+  const fmt = (n) => String(Math.round(n * 10) / 10);
+  const range = (nums) => {
+    const lo = Math.min(...nums);
+    const hi = Math.max(...nums);
+    return lo === hi ? fmt(lo) : `${fmt(lo)}~${fmt(hi)}`;
+  };
+
+  // 라벨 사이즈 여러 개 → "100~105" · "M~L" · 그 밖의 것은 그대로 나열
+  function summarizeSizes(sizes) {
+    const nums = [];
+    const letters = [];
+    const others = [];
+    for (const raw of sizes) {
+      const up = raw.toUpperCase().replace(/\s+/g, '');
+      const letter = LETTER_ALIASES[up] ?? up;
+      if (/^\d+(\.\d+)?$/.test(up)) nums.push(Number(up));
+      else if (LETTER_SIZES.includes(letter)) letters.push(LETTER_SIZES.indexOf(letter));
+      else if (!others.includes(raw)) others.push(raw);
+    }
+    const parts = [];
+    if (nums.length) parts.push(range(nums));
+    if (letters.length) {
+      const lo = LETTER_SIZES[Math.min(...letters)];
+      const hi = LETTER_SIZES[Math.max(...letters)];
+      parts.push(lo === hi ? lo : `${lo}~${hi}`);
+    }
+    return [...parts, ...others].join(' · ');
+  }
+
+  function el(tag, className, text) {
+    const n = document.createElement(tag);
+    if (className) n.className = className;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  // 큰 글씨 한 줄: [이름] 값 (n벌)
+  function fsRow(label, value, count, notes = []) {
+    const row = el('div', 'fs-row');
+    row.append(el('span', 'fs-label', label));
+    const v = el('span', 'fs-value', value);
+    if (count) v.append(el('small', 'fs-count', ` (${count}벌)`));
+    row.append(v);
+    for (const note of notes) row.append(el('p', 'fs-note', note));
+    return row;
+  }
+
+  function renderFitSizes() {
+    const host = $('fitSizes');
     host.textContent = '';
-    for (const f of SIZE_FIELDS) host.append(sizeCard(f));
+    const head = el('div', 'fs-head');
+    head.append(el('h3', '', '옷장에서 본 내 사이즈'), el('span', 'fs-sub', '‘딱 맞음’ 옷 기준'));
+    host.append(head);
+
+    const items = Wardrobe.list();
+    const good = items.filter((it) => it.fit === 'good');
+    const rated = items.filter((it) => it.fit);
+    if (!rated.length) {
+      const p = el('p', 'me-empty');
+      const a = el('a', '', '옷장');
+      a.href = '#closet';
+      p.append(a, '에서 잘 맞는 옷을 눌러 ‘딱 맞음’과 라벨 사이즈를 넣으면, 여기에 내 사이즈가 모여요.');
+      host.append(p);
+      return;
+    }
+
+    // 종류별 라벨 사이즈 (+ 조금 큼 · 조금 작음 참고)
+    const labelBox = el('div', 'fs-block');
+    labelBox.append(el('h4', '', '라벨 사이즈'));
+    for (const [type, name] of FIT_SIZE_TYPES) {
+      const ofType = items.filter((it) => it.type === type && it.size);
+      const fits = ofType.filter((it) => it.fit === 'good');
+      const notes = ['big', 'small'].map((f) => {
+        const off = ofType.filter((it) => it.fit === f);
+        return off.length ? `${Wardrobe.FITS[f]} ${off.length}벌 (${summarizeSizes(off.map((it) => it.size))}) → ${FIT_NOTES[f]}` : null;
+      }).filter(Boolean);
+      if (!fits.length && !notes.length) continue;
+      labelBox.append(fsRow(name, fits.length ? summarizeSizes(fits.map((it) => it.size)) : '—', fits.length, notes));
+    }
+    if (labelBox.children.length === 1) labelBox.append(el('p', 'me-note', '라벨 사이즈를 넣은 옷이 아직 없어요.'));
+    host.append(labelBox);
+
+    // 브랜드별: 종류마다 한 줄 "유니클로 L (2벌) · 무신사 XL (1벌)"
+    const brandLines = [];
+    for (const [type, name] of FIT_SIZE_TYPES) {
+      const byBrand = new Map();
+      for (const it of good) {
+        if (it.type !== type || !it.brand || !it.size) continue;
+        if (!byBrand.has(it.brand)) byBrand.set(it.brand, []);
+        byBrand.get(it.brand).push(it.size);
+      }
+      if (!byBrand.size) continue;
+      const text = [...byBrand]
+        .sort((x, y) => y[1].length - x[1].length)
+        .map(([brand, sizes]) => `${brand} ${summarizeSizes(sizes)} (${sizes.length}벌)`)
+        .join(' · ');
+      brandLines.push([name, text]);
+    }
+    if (brandLines.length) {
+      const box = el('div', 'fs-block');
+      box.append(el('h4', '', '브랜드별'));
+      for (const [name, text] of brandLines) {
+        const line = el('p', 'fs-line');
+        line.append(el('span', 'fs-label', name), text);
+        box.append(line);
+      }
+      host.append(box);
+    }
+
+    // 내 기준 치수: 딱 맞음 옷의 치수 항목별 최소~최대
+    const mBox = el('div', 'fs-block');
+    mBox.append(el('h4', '', '내 기준 치수'));
+    const measured = good.filter((it) => Object.keys(it.measures).length);
+    for (const [type, name] of FIT_SIZE_TYPES) {
+      const list = measured.filter((it) => it.type === type);
+      if (!list.length) continue;
+      const parts = Wardrobe.MEASURES[type]
+        .map((m) => {
+          const vals = list.map((it) => it.measures[m.key]).filter((v) => v != null);
+          return vals.length ? `${m.label} ${range(vals)}${m.unit === 'cm' ? '' : m.unit}` : null;
+        })
+        .filter(Boolean);
+      const line = el('p', 'fs-line');
+      line.append(el('span', 'fs-label', name), parts.join(' · '), el('small', 'fs-count', ` (${list.length}벌)`));
+      mBox.append(line);
+    }
+    const missing = ['top', 'bottom'].filter((t) => !measured.some((it) => it.type === t));
+    if (missing.length === 2) mBox.append(el('p', 'fs-guide', MEASURE_GUIDE));
+    else if (missing.length) mBox.append(el('p', 'me-note', `제일 잘 맞는 ${Wardrobe.TYPES[missing[0]]}도 한 벌 펴서 재 보세요.`));
+    else mBox.append(el('p', 'me-note', '단위 cm, 옷을 펴 놓고 잰 값이에요.'));
+    host.append(mBox);
+
+    // 몸 둘레 추정 (참고)
+    const est = BODY_ESTIMATES.map((e) => {
+      const vals = good.filter((it) => it.type === e.from && it.measures[e.measure] != null)
+        .map((it) => e.calc(it.measures[e.measure]));
+      if (!vals.length) return null;
+      const inch = e.inch ? ` (${range(vals.map((v) => v / 2.54))}인치)` : '';
+      return `${e.label} ≈ ${range(vals)}cm${inch}`;
+    }).filter(Boolean);
+    if (est.length) host.append(el('p', 'fs-estimate', `몸 둘레 추정 (참고) · ${est.join(' · ')}`));
   }
 
   /* ===== 2. 옷장 분석 ===== */
@@ -486,9 +665,11 @@
   });
 
   renderSizes();
+  renderFitSizes();
   renderColorFilter();
   renderAnalysis();
   renderShop();
   bindShopForm();
   Wardrobe.onChange(renderAnalysis);
+  Wardrobe.onChange(renderFitSizes);
 })();

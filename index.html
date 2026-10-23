@@ -112,7 +112,16 @@
       <!-- 1. 내 사이즈: 톡 누르면 그 자리에서 수정 -->
       <section class="me-section" aria-labelledby="sizesTitle">
         <h2 id="sizesTitle">내 사이즈</h2>
+
+        <!-- 옷장에서 본 내 사이즈: '딱 맞음' 옷에서 자동으로 모은다 -->
+        <div class="fit-sizes" id="fitSizes"></div>
+
+        <h3>직접 입력</h3>
         <div class="sizes" id="sizes"></div>
+        <details class="me-details">
+          <summary>직접 적은 값</summary>
+          <div class="sizes" id="sizesMore"></div>
+        </details>
         <p class="me-note">칸을 누르면 바로 고칠 수 있어요.</p>
       </section>
 
@@ -216,6 +225,34 @@
         </div>
         <p class="field-hint" id="warmthHint"></p>
       </fieldset>
+
+      <!-- 사이즈: 전부 선택 사항 (나 탭 "옷장에서 본 내 사이즈"에 쓰인다) -->
+      <fieldset class="field">
+        <legend>맞음 <small>(선택 · 다시 누르면 해제)</small></legend>
+        <div class="seg" id="fitSeg">
+          <label><input type="radio" name="fit" value="good"><span>딱 맞음</span></label>
+          <label><input type="radio" name="fit" value="big"><span>조금 큼</span></label>
+          <label><input type="radio" name="fit" value="small"><span>조금 작음</span></label>
+        </div>
+      </fieldset>
+
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">라벨 사이즈 <small>(선택)</small></span>
+          <input type="text" id="itemSize" maxlength="12" autocomplete="off" placeholder="100, L, 32, 270">
+        </label>
+        <label class="field">
+          <span class="field-label">브랜드 <small>(선택)</small></span>
+          <input type="text" id="itemBrand" maxlength="30" autocomplete="off" list="brandList" placeholder="예) 유니클로">
+        </label>
+        <datalist id="brandList"></datalist>
+      </div>
+
+      <details class="measure-box" id="measureBox">
+        <summary>치수 재서 넣기 <small id="measureCount"></small></summary>
+        <p class="field-hint">옷을 바닥에 펴 놓고 잰 길이예요. 아는 칸만 넣어도 돼요.</p>
+        <div class="measure-grid" id="measureFields"></div>
+      </details>
 
       <fieldset class="field">
         <legend>사진 <small>(선택)</small></legend>

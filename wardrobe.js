@@ -13,6 +13,11 @@
  *     color: '#9a9da3',      // #rrggbb
  *     warmth: 3,             // 따뜻한 정도 1(한여름 반팔) ~ 5(패딩)
  *     photo: null,           // 'data:image/jpeg;base64,…' (긴 변 300px) 또는 null
+ *     // 아래는 모두 선택 사항. 예전 옷에는 없어도 normalize 가 빈 값으로 채운다
+ *     fit: 'good',           // good 딱 맞음 · big 조금 큼 · small 조금 작음 · null 모름
+ *     size: 'L',             // 라벨 사이즈 (자유 입력: 100, L, 32, 270 …)
+ *     brand: '유니클로',
+ *     measures: { chest: 53, length: 70 },  // 옷을 펴 놓고 잰 치수. 칸은 아래 MEASURES (종류마다 다름)
  *     createdAt: 1760000000000,
  *     updatedAt: 1760000000000,
  *   }
@@ -27,6 +32,30 @@
   const WARMTH_MAX = 5;
   const PHOTO_MAX = 300; // 사진 긴 변(px)
   const HEX = /^#[0-9a-f]{6}$/i;
+
+  const FITS = { good: '딱 맞음', big: '조금 큼', small: '조금 작음' };
+
+  // 치수 칸 (옷을 펴 놓고 잰 값). min~max 밖의 값은 버린다
+  const CM = { unit: 'cm', min: 1, max: 300 };
+  const TOP_MEASURES = [
+    { key: 'shoulder', label: '어깨너비', ...CM },
+    { key: 'chest',    label: '가슴단면', ...CM },
+    { key: 'length',   label: '총장',     ...CM },
+    { key: 'sleeve',   label: '소매길이', ...CM },
+  ];
+  const MEASURES = {
+    top: TOP_MEASURES,
+    outer: TOP_MEASURES,
+    bottom: [
+      { key: 'waist',  label: '허리단면',   ...CM },
+      { key: 'rise',   label: '밑위',       ...CM },
+      { key: 'thigh',  label: '허벅지단면', ...CM },
+      { key: 'length', label: '총장',       ...CM },
+    ],
+    acc: [
+      { key: 'foot', label: '발길이', unit: 'mm', min: 100, max: 400, note: '신발일 때' },
+    ],
+  };
 
   /*
    * 캐릭터에 입힐 그림 고르기 (character.js 의 PIECES 이름)
@@ -81,6 +110,11 @@
     const color = HEX.test(raw.color) ? raw.color.toLowerCase() : '#9a9da3';
     const warmth = Math.min(WARMTH_MAX, Math.max(WARMTH_MIN, Math.round(Number(raw.warmth)) || 3));
     const photo = typeof raw.photo === 'string' && raw.photo.startsWith('data:image/') ? raw.photo : null;
+    const measures = {};
+    for (const m of MEASURES[raw.type]) {
+      const v = parseFloat(String(raw.measures?.[m.key] ?? '').replace(',', '.'));
+      if (v >= m.min && v <= m.max) measures[m.key] = Math.round(v * 10) / 10;
+    }
     const now = Date.now();
     return {
       id: typeof raw.id === 'string' && raw.id ? raw.id : newId(),
@@ -89,6 +123,10 @@
       color,
       warmth,
       photo,
+      fit: FITS[raw.fit] ? raw.fit : null,
+      size: String(raw.size ?? '').trim().slice(0, 12),
+      brand: String(raw.brand ?? '').trim().slice(0, 30),
+      measures,
       createdAt: Number(raw.createdAt) || now,
       updatedAt: Number(raw.updatedAt) || now,
     };
@@ -193,6 +231,13 @@
 
   function onChange(fn) { listeners.push(fn); }
 
+  // 지금까지 넣은 브랜드 (많이 쓴 순) — 자동 완성용
+  function brands() {
+    const count = new Map();
+    for (const it of items) if (it.brand) count.set(it.brand, (count.get(it.brand) ?? 0) + 1);
+    return [...count].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ko')).map(([b]) => b);
+  }
+
   function artFor(item) {
     const byName = (ART_BY_NAME[item.type] || []).find(([re]) => re.test(item.name));
     if (byName) return byName[1];
@@ -225,8 +270,8 @@
   }
 
   window.Wardrobe = {
-    TYPES, WARMTH_MIN, WARMTH_MAX,
-    list, get, add, update, remove, exportText, parseImport, importBackup, addBackupPart,
+    TYPES, WARMTH_MIN, WARMTH_MAX, FITS, MEASURES,
+    list, brands, get, add, update, remove, exportText, parseImport, importBackup, addBackupPart,
     onChange, artFor, resizePhoto,
   };
 })();

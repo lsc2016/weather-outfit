@@ -89,12 +89,23 @@
     btn.type = 'button';
     btn.className = 'closet-item';
     btn.dataset.id = it.id;
-    btn.setAttribute('aria-label', `${it.name}, 따뜻한 정도 ${it.warmth}. 눌러서 수정·삭제`);
+    const fit = it.fit ? Wardrobe.FITS[it.fit] : '';
+    const meta = [it.size, fit].filter(Boolean).join(' · ');
+    btn.setAttribute('aria-label', `${it.name}${meta ? `, ${meta}` : ''}, 따뜻한 정도 ${it.warmth}. 눌러서 수정·삭제`);
 
     const name = document.createElement('span');
     name.className = 'ci-name';
     name.textContent = it.name;
     btn.append(colorDot(it.color), name);
+
+    // 라벨 사이즈 · 맞음 (딱 맞음은 강조색 점)
+    if (meta) {
+      const tag = document.createElement('span');
+      tag.className = `ci-meta${it.fit ? ` fit-${it.fit}` : ''}`;
+      tag.setAttribute('aria-hidden', 'true');
+      tag.textContent = meta;
+      btn.append(tag);
+    }
 
     if (it.photo) {
       const img = document.createElement('img');
@@ -193,6 +204,66 @@
     $('warmthHint').textContent = v ? `${v} = ${WARMTH_HINT[v]}` : '1 한여름 반팔 ~ 5 패딩';
   }
 
+  /* --- 치수 칸: 종류에 따라 바뀐다 --- */
+
+  function readMeasures() {
+    const out = {};
+    for (const input of $('measureFields').querySelectorAll('input')) {
+      if (input.value.trim()) out[input.dataset.key] = input.value.trim();
+    }
+    return out;
+  }
+
+  function updateMeasureCount() {
+    const n = Object.keys(readMeasures()).length;
+    $('measureCount').textContent = n ? `${n}칸 입력됨` : '옷을 펴 놓고 잰 값';
+  }
+
+  // values: { chest: 53, … }. 종류를 바꿔도 같은 이름 칸(예: 총장)의 값은 남긴다
+  function renderMeasureFields(type, values = {}) {
+    const host = $('measureFields');
+    host.textContent = '';
+    const fields = Wardrobe.MEASURES[type];
+    if (!fields) {
+      const p = document.createElement('p');
+      p.className = 'field-hint';
+      p.textContent = '종류를 먼저 고르면 칸이 나와요.';
+      host.append(p);
+    } else {
+      for (const m of fields) {
+        const label = document.createElement('label');
+        label.className = 'measure-field';
+        const text = document.createElement('span');
+        text.textContent = m.note ? `${m.label} (${m.note})` : m.label;
+        const box = document.createElement('span');
+        box.className = 'measure-input';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.inputMode = 'decimal';
+        input.autocomplete = 'off';
+        input.maxLength = 6;
+        input.dataset.key = m.key;
+        input.value = values[m.key] ?? '';
+        const unit = document.createElement('small');
+        unit.textContent = m.unit;
+        box.append(input, unit);
+        label.append(text, box);
+        host.append(label);
+      }
+    }
+    updateMeasureCount();
+  }
+
+  function fillBrandList() {
+    const list = $('brandList');
+    list.textContent = '';
+    for (const b of Wardrobe.brands()) {
+      const opt = document.createElement('option');
+      opt.value = b;
+      list.append(opt);
+    }
+  }
+
   function showDeleteConfirm(show) {
     $('deleteConfirm').hidden = !show;
     $('sheetActions').hidden = show;
@@ -215,6 +286,12 @@
     setColor(/^#[0-9a-f]{6}$/i.test(start.color) ? start.color : PALETTE[2][1]);
     setPhoto(start.photo || null);
     setWarmthHint();
+    form.elements.fit.value = start.fit || '';
+    $('itemSize').value = start.size || '';
+    $('itemBrand').value = start.brand || '';
+    fillBrandList();
+    renderMeasureFields(start.type, start.measures || {});
+    $('measureBox').open = false;
 
     dialog.showModal();
     if (!item) $('itemName').blur(); // 열자마자 키보드가 올라오지 않게
@@ -232,6 +309,10 @@
       color: edit.color,
       warmth: Number(form.elements.warmth.value),
       photo: edit.photo,
+      fit: form.elements.fit.value || null,
+      size: $('itemSize').value.trim(),
+      brand: $('itemBrand').value.trim(),
+      measures: readMeasures(),
     };
     const missing = [!fields.type && '종류', !fields.name && '이름', !fields.warmth && '따뜻한 정도'].filter(Boolean);
     if (missing.length) {
@@ -263,7 +344,20 @@
     });
     $('colorHex').addEventListener('blur', () => { $('colorHex').value = edit.color; });
 
-    form.addEventListener('change', (e) => { if (e.target.name === 'warmth') setWarmthHint(); });
+    form.addEventListener('change', (e) => {
+      if (e.target.name === 'warmth') setWarmthHint();
+      if (e.target.name === 'type') renderMeasureFields(e.target.value, readMeasures());
+    });
+    $('measureFields').addEventListener('input', updateMeasureCount);
+
+    // 맞음: 이미 고른 버튼을 다시 누르면 해제 (선택 사항이라)
+    let fitBefore = null;
+    $('fitSeg').addEventListener('pointerdown', () => { fitBefore = form.elements.fit.value; });
+    $('fitSeg').addEventListener('click', (e) => {
+      if (e.target.name !== 'fit') return;
+      if (fitBefore && e.target.value === fitBefore) e.target.checked = false;
+      fitBefore = null;
+    });
 
     $('photoInput').addEventListener('change', async (e) => {
       const file = e.target.files?.[0];
