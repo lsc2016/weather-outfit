@@ -48,21 +48,16 @@
       <p class="hero-line" id="weatherLine">날씨를 불러오는 중…</p>
     </section>
 
-    <!-- 2. 주 영역: 캐릭터 + 추천 의상 4칸 -->
+    <!-- 2. 주 영역: 캐릭터 + 추천안 카드 2~3장 (카드를 누르면 캐릭터가 그 옷으로) -->
     <section class="outfit" aria-labelledby="outfitTitle">
       <div class="figure" id="figure" role="img" aria-label="추천 옷을 입은 캐릭터"></div>
       <div class="outfit-head">
         <h1 id="outfitTitle">오늘의 추천</h1>
         <p class="basis" id="basis"></p>
       </div>
-      <ul class="outfit-grid" id="outfitGrid" aria-live="polite">
-        <li class="slot" data-slot="top"><span class="slot-label">상의</span><span class="slot-icon"></span><span class="slot-name"></span></li>
-        <li class="slot" data-slot="bottom"><span class="slot-label">하의</span><span class="slot-icon"></span><span class="slot-name"></span></li>
-        <li class="slot" data-slot="outer"><span class="slot-label">겉옷</span><span class="slot-icon"></span><span class="slot-name"></span></li>
-        <li class="slot" data-slot="acc"><span class="slot-label">소품</span><span class="slot-icon"></span><span class="slot-name"></span></li>
-      </ul>
+      <ul class="look-list" id="lookList" aria-live="polite"></ul>
       <div class="outfit-more">
-        <button type="button" class="chip-btn" id="nextComboBtn" hidden>↻ 다른 조합 <span id="comboCount"></span></button>
+        <button type="button" class="chip-btn" id="nextComboBtn" hidden>↻ 다른 추천안 <span id="comboCount"></span></button>
         <p class="closet-hint" id="closetHint" hidden><a href="#closet">옷장</a>에 추가하면 내 옷으로 추천해요<span id="closetMissing"></span></p>
       </div>
     </section>
@@ -298,6 +293,7 @@
 
   <script src="character.js"></script>
   <script src="wardrobe.js"></script>
+  <script src="coach.js"></script>
   <script src="tag-reader.js"></script>
   <script src="closet.js"></script>
   <script src="me.js"></script>

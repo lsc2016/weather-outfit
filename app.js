@@ -1,69 +1,140 @@
 /*
- * 온도별 의상 추천
+ * 온도별 기본 추천 (옷장에 맞는 옷이 없을 때)
  * ------------------------------------------------------------
  * 품목을 바꾸고 싶으면 아래 OUTFIT_TABLE 만 고치면 된다.
  *  - min  : 이 구간의 최저 온도(이상). 위에서부터 차례로 비교하므로 높은 온도 순서를 지킬 것.
+ *  - looks: 이 구간의 룩(완성된 옷차림) 2~3개. 화면에 추천안 카드로 하나씩 나온다.
+ *    룩 하나 = 상의 하나 + 하의 하나 + 겉옷 하나(또는 null) + 소품 하나(또는 null) + tip(코치 한마디).
  *  - 각 칸은 { icon: '이모지', name: '품목 이름', art: '캐릭터 그림 이름' }.
- *    필요 없는 칸은 null 로 두면 화면에 "필요 없음"으로 나오고 캐릭터에도 그리지 않는다.
- *  - art 는 character.js 의 PIECES 이름. 여러 개를 겹치려면 배열로 (예: ['muffler', 'gloves']).
- *    쓸 수 있는 이름과 새 그림을 추가하는 방법은 character.js 맨 위 주석 참고.
+ *    한 칸에는 품목 하나만 ("니트 · 셔츠" 처럼 쓰지 않는다 — 둘 다 입으라는 뜻으로 읽힌다).
+ *    null 인 칸은 카드에 안 나오고 캐릭터에도 그리지 않는다.
+ *  - art 는 character.js 의 PIECES 이름. 쓸 수 있는 이름과 새 그림을 추가하는 방법은 character.js 맨 위 주석 참고.
  */
 const OUTFIT_TABLE = [
   {
     min: 28, label: '28° 이상',
-    top:    { icon: '🎽', name: '민소매 · 반팔', art: 'tank' },
-    bottom: { icon: '🩳', name: '반바지 · 린넨 바지', art: 'shorts' },
-    outer:  null,
-    acc:    { icon: '🕶️', name: '선글라스 · 모자', art: ['sunglasses', 'cap'] },
+    looks: [
+      { top:    { icon: '🎽', name: '민소매', art: 'tank' },
+        bottom: { icon: '🩳', name: '반바지', art: 'shorts' },
+        outer:  null,
+        acc:    { icon: '🕶️', name: '선글라스', art: 'sunglasses' },
+        tip: '땀이 덜 차게 민소매에 반바지로 가볍게 입어요' },
+      { top:    { icon: '👕', name: '반팔 티', art: 'tshirt' },
+        bottom: { icon: '👖', name: '린넨 바지', art: 'slacks' },
+        outer:  null,
+        acc:    { icon: '🧢', name: '모자', art: 'cap' },
+        tip: '바람이 잘 통하는 린넨 바지에 모자로 햇볕을 가려요' },
+    ],
   },
   {
     min: 23, label: '23–27°',
-    top:    { icon: '👕', name: '반팔 · 얇은 셔츠', art: 'tshirt' },
-    bottom: { icon: '🩳', name: '반바지 · 면바지', art: 'shorts' },
-    outer:  null,
-    acc:    { icon: '🧢', name: '모자', art: 'cap' },
+    looks: [
+      { top:    { icon: '👕', name: '반팔 티', art: 'tshirt' },
+        bottom: { icon: '🩳', name: '반바지', art: 'shorts' },
+        outer:  null,
+        acc:    { icon: '🧢', name: '모자', art: 'cap' },
+        tip: '가장 편한 여름 차림이에요. 모자 하나면 충분해요' },
+      { top:    { icon: '👔', name: '얇은 셔츠', art: 'shirt' },
+        bottom: { icon: '👖', name: '면바지', art: 'slacks' },
+        outer:  null,
+        acc:    null,
+        tip: '반팔보다 단정하게, 얇은 셔츠에 면바지로 깔끔하게' },
+    ],
   },
   {
     min: 20, label: '20–22°',
-    top:    { icon: '👚', name: '얇은 긴팔 · 블라우스', art: 'longsleeve' },
-    bottom: { icon: '👖', name: '면바지 · 슬랙스', art: 'slacks' },
-    outer:  { icon: '🧶', name: '얇은 가디건', art: 'cardigan' },
-    acc:    null,
+    looks: [
+      { top:    { icon: '👚', name: '얇은 긴팔', art: 'longsleeve' },
+        bottom: { icon: '👖', name: '면바지', art: 'slacks' },
+        outer:  { icon: '🧶', name: '얇은 가디건', art: 'cardigan' },
+        acc:    null,
+        tip: '아침저녁이 쌀쌀하면 가디건만 걸치면 돼요' },
+      { top:    { icon: '👚', name: '블라우스', art: 'shirt' },
+        bottom: { icon: '👖', name: '슬랙스', art: 'slacks' },
+        outer:  { icon: '🧶', name: '얇은 가디건', art: 'cardigan' },
+        acc:    null,
+        tip: '블라우스에 슬랙스, 단정한 출근 차림이에요' },
+      { top:    { icon: '👚', name: '얇은 긴팔', art: 'longsleeve' },
+        bottom: { icon: '👖', name: '청바지', art: 'jeans' },
+        outer:  { icon: '🧶', name: '얇은 가디건', art: 'cardigan' },
+        acc:    null,
+        tip: '청바지로 편하게, 주말 나들이에 좋아요' },
+    ],
   },
   {
     min: 17, label: '17–19°',
-    top:    { icon: '👕', name: '맨투맨 · 얇은 니트', art: 'sweatshirt' },
-    bottom: { icon: '👖', name: '청바지 · 면바지', art: 'jeans' },
-    outer:  { icon: '🧥', name: '바람막이 · 얇은 재킷', art: 'windbreaker' },
-    acc:    null,
+    looks: [
+      { top:    { icon: '👕', name: '맨투맨', art: 'sweatshirt' },
+        bottom: { icon: '👖', name: '청바지', art: 'jeans' },
+        outer:  { icon: '🧥', name: '바람막이', art: 'windbreaker' },
+        acc:    null,
+        tip: '움직이기 편한 캐주얼이에요. 바람 불면 바람막이를 여며요' },
+      { top:    { icon: '🧶', name: '얇은 니트', art: 'knit' },
+        bottom: { icon: '👖', name: '면바지', art: 'slacks' },
+        outer:  { icon: '🧥', name: '얇은 재킷', art: 'jacket' },
+        acc:    null,
+        tip: '얇은 니트에 재킷을 걸쳐 단정하게' },
+    ],
   },
   {
     min: 12, label: '12–16°',
-    top:    { icon: '👔', name: '니트 · 셔츠', art: 'shirt' },
-    bottom: { icon: '👖', name: '청바지 · 슬랙스', art: 'jeans' },
-    outer:  { icon: '🧥', name: '재킷 · 트렌치코트', art: 'jacket' },
-    acc:    { icon: '🧣', name: '얇은 스카프', art: 'scarf' },
+    looks: [
+      { top:    { icon: '🧶', name: '니트', art: 'knit' },
+        bottom: { icon: '👖', name: '청바지', art: 'jeans' },
+        outer:  { icon: '🧥', name: '재킷', art: 'jacket' },
+        acc:    { icon: '🧣', name: '얇은 스카프', art: 'scarf' },
+        tip: '니트와 청바지는 실패 없는 조합이에요. 재킷으로 마무리해요' },
+      { top:    { icon: '👔', name: '셔츠', art: 'shirt' },
+        bottom: { icon: '👖', name: '슬랙스', art: 'slacks' },
+        outer:  { icon: '🧥', name: '트렌치코트', art: 'trench' },
+        acc:    null,
+        tip: '셔츠에 트렌치코트, 단정한 출근 차림이에요' },
+    ],
   },
   {
     min: 9, label: '9–11°',
-    top:    { icon: '🧶', name: '니트 · 기모 맨투맨', art: 'knit' },
-    bottom: { icon: '👖', name: '청바지 · 기모 바지', art: 'jeans' },
-    outer:  { icon: '🧥', name: '트렌치코트 · 점퍼', art: 'trench' },
-    acc:    { icon: '🧣', name: '스카프', art: 'scarf' },
+    looks: [
+      { top:    { icon: '🧶', name: '니트', art: 'knit' },
+        bottom: { icon: '👖', name: '청바지', art: 'jeans' },
+        outer:  { icon: '🧥', name: '트렌치코트', art: 'trench' },
+        acc:    { icon: '🧣', name: '스카프', art: 'scarf' },
+        tip: '트렌치코트에 스카프 하나면 가을 느낌이 나요' },
+      { top:    { icon: '👕', name: '기모 맨투맨', art: 'sweatshirt' },
+        bottom: { icon: '👖', name: '기모 바지', art: 'warmpants' },
+        outer:  { icon: '🧥', name: '점퍼', art: 'jacket' },
+        acc:    null,
+        tip: '쌀쌀한 날엔 안쪽이 기모인 옷으로 편하고 따뜻하게' },
+    ],
   },
   {
     min: 5, label: '5–8°',
-    top:    { icon: '🧶', name: '두꺼운 니트 · 히트텍', art: 'knit' },
-    bottom: { icon: '👖', name: '기모 바지', art: 'warmpants' },
-    outer:  { icon: '🧥', name: '울 코트 · 가죽 재킷', art: 'coat' },
-    acc:    { icon: '🧣', name: '목도리', art: 'muffler' },
+    looks: [
+      { top:    { icon: '🧶', name: '두꺼운 니트', art: 'knit' },
+        bottom: { icon: '👖', name: '기모 바지', art: 'warmpants' },
+        outer:  { icon: '🧥', name: '울 코트', art: 'coat' },
+        acc:    { icon: '🧣', name: '목도리', art: 'muffler' },
+        tip: '울 코트에 목도리를 두르면 따뜻하고 단정해요' },
+      { top:    { icon: '👔', name: '기모 셔츠', art: 'shirt' },
+        bottom: { icon: '👖', name: '기모 청바지', art: 'jeans' },
+        outer:  { icon: '🧥', name: '가죽 재킷', art: 'jacket' },
+        acc:    { icon: '🧣', name: '목도리', art: 'muffler' },
+        tip: '안에 히트텍을 받쳐 입고 가죽 재킷으로 멋스럽게' },
+    ],
   },
   {
     min: -Infinity, label: '4° 이하',
-    top:    { icon: '🧶', name: '히트텍 + 두꺼운 니트', art: 'knit' },
-    bottom: { icon: '👖', name: '기모 바지 · 내복', art: 'warmpants' },
-    outer:  { icon: '🧥', name: '패딩 · 두꺼운 코트', art: 'padding' },
-    acc:    { icon: '🧤', name: '목도리 · 장갑 · 비니', art: ['muffler', 'gloves', 'beanie'] },
+    looks: [
+      { top:    { icon: '🧶', name: '두꺼운 니트', art: 'knit' },
+        bottom: { icon: '👖', name: '기모 바지', art: 'warmpants' },
+        outer:  { icon: '🧥', name: '패딩', art: 'padding' },
+        acc:    { icon: '🧤', name: '장갑', art: 'gloves' },
+        tip: '히트텍 위에 두꺼운 니트, 패딩으로 단단히 막아요. 장갑도 챙기세요' },
+      { top:    { icon: '👕', name: '기모 맨투맨', art: 'sweatshirt' },
+        bottom: { icon: '👖', name: '기모 청바지', art: 'jeans' },
+        outer:  { icon: '🧥', name: '두꺼운 코트', art: 'coat' },
+        acc:    { icon: '🧣', name: '목도리', art: 'muffler' },
+        tip: '두꺼운 코트에 목도리로 목까지 따뜻하게 감싸요' },
+    ],
   },
 ];
 
@@ -87,20 +158,6 @@ const WARMTH_TABLE = [
   { min: 5,         top: [4, 4], bottom: [4, 4], outer: [4, 4], acc: [4, 4] },
   { min: -Infinity, top: [4, 5], bottom: [4, 5], outer: [5, 5], acc: [4, 5] },
 ];
-
-/*
- * 색 조합 규칙
- *  - 상의와 하의가 같은 색 계열이면 피한다 (그런 조합만 있으면 그래도 보여준다).
- *  - 무채색(검정 · 흰 · 회 · 베이지)은 뭐든 어울린다.
- * 색 계열은 색상(hue, 0~360) 범위로 나눈다. max 미만이면 그 계열.
- */
-const COLOR_FAMILIES = [
-  { name: 'red', max: 15 }, { name: 'orange', max: 45 }, { name: 'yellow', max: 70 },
-  { name: 'green', max: 165 }, { name: 'blue', max: 255 }, { name: 'purple', max: 290 },
-  { name: 'pink', max: 345 }, { name: 'red', max: 361 },
-];
-
-const SLOT_LABEL = { top: '상의', bottom: '하의', outer: '겉옷', acc: '소품' };
 
 // 비가 올 때 소품 칸에 더해지는 품목
 const RAIN_ITEM = { icon: '☂️', name: '우산', art: 'umbrella' };
@@ -143,7 +200,10 @@ const state = {
   sense: 'normal',
   sliderTemp: 20,     // 슬라이더 값
   custom: false,      // 슬라이더로 다른 온도를 보고 있는지
-  combo: { key: '', index: 0 }, // 옷장 추천: 지금 보여주는 조합 번호 ("다른 조합")
+  combo: { key: '', index: 0 }, // 옷장 추천: 지금 보여주는 추천안 묶음 번호 ("다른 추천안")
+  selected: 0,        // 캐릭터에 입힌 추천안 카드 번호
+  looks: [],          // 지금 보여주는 추천안들
+  looksSig: '',       // 그 추천안들의 이름 (바뀌면 첫 카드부터 선택)
 };
 
 const $ = (id) => document.getElementById(id);
@@ -261,101 +321,9 @@ function clampSlider(t) {
   return Math.min(SLIDER_MAX, Math.max(SLIDER_MIN, t));
 }
 
-function findBand(temp) {
-  return OUTFIT_TABLE.find((band) => temp >= band.min) || OUTFIT_TABLE[OUTFIT_TABLE.length - 1];
-}
+/* ===== 옷장 추천 → 화면에 쓰는 모양 ===== */
 
-/* ===== 옷장에서 조합 고르기 ===== */
-
-function hexToHsl(hex) {
-  const n = parseInt(hex.slice(1), 16);
-  const r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  const d = max - min;
-  if (!d) return { h: 0, s: 0, l };
-  const s = d / (1 - Math.abs(2 * l - 1));
-  let h;
-  if (max === r) h = ((g - b) / d) % 6;
-  else if (max === g) h = (b - r) / d + 2;
-  else h = (r - g) / d + 4;
-  return { h: (h * 60 + 360) % 360, s, l };
-}
-
-// 'neutral'(무채색) 또는 COLOR_FAMILIES 의 이름
-function colorFamily(hex) {
-  const { h, s, l } = hexToHsl(hex);
-  if (s < 0.12 || l < 0.13 || l > 0.93) return 'neutral';           // 검정 · 흰 · 회
-  if (h >= 20 && h <= 50 && s < 0.5 && l > 0.65) return 'neutral';  // 베이지
-  return COLOR_FAMILIES.find((f) => h < f.max).name;
-}
-
-function colorsGo(combo) {
-  if (!combo.top || !combo.bottom) return true;
-  const a = colorFamily(combo.top.color);
-  const b = colorFamily(combo.bottom.color);
-  return a === 'neutral' || b === 'neutral' || a !== b;
-}
-
-// 같은 날 같은 구간이면 같은 순서로 섞는다 (날마다 첫 추천이 바뀌게)
-function seededShuffle(list, seedText) {
-  let seed = 0;
-  for (const ch of seedText) seed = (seed * 31 + ch.charCodeAt(0)) | 0;
-  const rand = () => {
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-  const out = list.slice();
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
-}
-
-/**
- * 옷장 옷으로 조합 만들기
- *  - 옷장이 비었으면 { empty: true }
- *  - 맞는 옷이 없는 칸이 있으면 { missing: ['겉옷'] }
- *  - 아니면 { combo: { top, bottom, outer, acc }, index, count } (각 값은 옷장 옷 또는 null)
- */
-function pickFromCloset(temp) {
-  const items = Wardrobe.list();
-  if (!items.length) return { empty: true };
-
-  const row = WARMTH_TABLE.find((r) => temp >= r.min) || WARMTH_TABLE[WARMTH_TABLE.length - 1];
-  const pools = {};
-  const missing = [];
-  for (const slot of Object.keys(SLOT_LABEL)) {
-    const range = row[slot];
-    const fits = range
-      ? items.filter((it) => it.type === slot && it.warmth >= range[0] && it.warmth <= range[1])
-      : [];
-    if (fits.length) pools[slot] = fits;
-    else if (range && slot !== 'acc') missing.push(SLOT_LABEL[slot]);
-    else pools[slot] = [null];
-  }
-  if (missing.length) return { missing };
-
-  const all = [];
-  for (const top of pools.top)
-    for (const bottom of pools.bottom)
-      for (const outer of pools.outer)
-        for (const acc of pools.acc) all.push({ top, bottom, outer, acc });
-  const good = all.filter(colorsGo);
-  const today = new Date().toDateString();
-  const combos = seededShuffle(good.length ? good : all, `${today}|${row.min}`);
-
-  // 구간이 바뀌면 첫 조합부터
-  const key = String(row.min);
-  if (state.combo.key !== key) state.combo = { key, index: 0 };
-  const index = state.combo.index % combos.length;
-  return { combo: combos[index], index, count: combos.length };
-}
-
-// 옷장 옷 → 추천 칸에 쓰는 모양 (캐릭터는 기존 그림에 옷 색만 입힌다)
+// 옷장 옷 → 추천안 칸에 쓰는 모양 (캐릭터는 기존 그림에 옷 색만 입힌다)
 function closetItem(it) {
   return { name: it.name, color: it.color, art: { art: Wardrobe.artFor(it), color: it.color } };
 }
@@ -364,6 +332,39 @@ function closetItem(it) {
 function baseTemp() {
   if (!state.custom && state.weather) return Math.round(state.weather.feels);
   return state.sliderTemp;
+}
+
+/**
+ * 이 온도의 추천안들 (비 오면 모든 추천안 소품에 우산)
+ *  옷장에 맞는 옷이 있으면 옷장 추천, 없으면 OUTFIT_TABLE 기본 룩.
+ *  pick 은 Coach.pickFromCloset 결과 (안내 · "다른 추천안" 버튼에 씀)
+ */
+function buildLooks(target) {
+  const { band, looks: defaults } = Coach.defaultLooks(OUTFIT_TABLE, target);
+  const key = String(Coach.findRow(WARMTH_TABLE, target).min);
+  if (state.combo.key !== key) state.combo = { key, index: 0 }; // 구간이 바뀌면 첫 묶음부터
+
+  const pick = Coach.pickFromCloset({
+    items: Wardrobe.list(),
+    temp: target,
+    warmthTable: WARMTH_TABLE,
+    seed: new Date().toDateString(),
+    page: state.combo.index,
+  });
+  // 옷장에 맞는 소품이 없으면 소품 칸만 기본 룩에서
+  const fallbackAcc = defaults.find((look) => look.acc)?.acc ?? null;
+  let looks = pick.looks
+    ? pick.looks.map((look) => ({
+      top: closetItem(look.top),
+      bottom: closetItem(look.bottom),
+      outer: look.outer ? closetItem(look.outer) : null,
+      acc: look.acc ? closetItem(look.acc) : fallbackAcc,
+      tip: look.tip,
+    }))
+    : defaults;
+
+  if (state.weather?.isRain) looks = Coach.addRain(looks, RAIN_ITEM);
+  return { band, pick, looks };
 }
 
 /* ===== 화면 그리기 ===== */
@@ -398,7 +399,7 @@ function renderOutfit() {
   const offset = SENSITIVITY[state.sense].offset;
   const base = baseTemp();
   const target = base + offset;
-  const band = findBand(target);
+  const { band, pick, looks } = buildLooks(target);
 
   // 기준 문구: "지금 체감 18° 기준" / "슬라이더 10° 기준" (+ 보정)
   const basis = $('basis');
@@ -412,79 +413,98 @@ function renderOutfit() {
   }
   basis.append(` · ${band.label}`);
 
-  // 옷장에 맞는 옷이 있으면 그걸로, 없으면 OUTFIT_TABLE 기본 추천
-  const pick = pickFromCloset(target);
-  const picked = pick.combo
-    ? {
-      top: closetItem(pick.combo.top),
-      bottom: closetItem(pick.combo.bottom),
-      outer: pick.combo.outer ? closetItem(pick.combo.outer) : null,
-      acc: pick.combo.acc ? closetItem(pick.combo.acc) : band.acc,
-    }
-    : { top: band.top, bottom: band.bottom, outer: band.outer, acc: band.acc };
-  renderClosetNote(pick);
-
-  // 비가 오면 소품 칸에 우산 추가
-  const rainy = state.weather?.isRain;
-  const items = { ...picked, acc: rainy ? mergeItems(RAIN_ITEM, picked.acc) : picked.acc };
-
-  // 캐릭터: 같은 품목을 그림으로 (겉옷이 null 이면 그 층은 비운다)
-  Character.render($('figure'), {
-    bottom: items.bottom?.art,
-    top: items.top?.art,
-    outer: items.outer?.art,
-    acc: items.acc?.art,
-  });
-  const described = [['상의', items.top], ['하의', items.bottom], ['겉옷', items.outer], ['소품', items.acc]]
-    .filter(([, item]) => item)
-    .map(([label, item]) => `${label} ${item.name}`);
-  $('figure').setAttribute('aria-label', `추천 옷을 입은 캐릭터: ${described.join(', ')}`);
-
-  for (const slot of document.querySelectorAll('.slot')) {
-    const key = slot.dataset.slot;
-    const item = items[key];
-    const icon = slot.querySelector('.slot-icon');
-    const name = slot.querySelector('.slot-name');
-    const prev = name.textContent;
-
-    slot.classList.toggle('is-empty', !item);
-    icon.textContent = item ? (item.icon ?? '') : '—';
-    if (item?.color) {
-      // 옷장 옷은 색 동그라미로
-      const dot = document.createElement('span');
-      dot.className = 'dot';
-      dot.style.background = item.color;
-      icon.append(dot);
-    }
-    name.textContent = item ? item.name : '필요 없음';
-
-    // 품목이 바뀐 칸만 살짝 반짝
-    if (prev && prev !== name.textContent) {
-      slot.classList.remove('flash');
-      void slot.offsetWidth;
-      slot.classList.add('flash');
-    }
+  // 보여주는 추천안이 바뀌면 첫 카드를 입힌다
+  const sig = JSON.stringify(looks.map((look) => [Coach.lookTitle(look), look.outer?.name, look.acc?.name]));
+  const changed = sig !== state.looksSig;
+  if (changed) {
+    state.looksSig = sig;
+    state.selected = 0;
   }
+  if (state.selected >= looks.length) state.selected = 0;
+
+  state.looks = looks;
+  renderClosetNote(pick);
+  renderLookCards(looks, changed);
+  dressFigure(looks[state.selected]);
 }
 
-// "다른 조합" 버튼 · 옷장 안내
+// 캐릭터: 고른 추천안을 그림으로 (겉옷이 null 이면 그 층은 비운다)
+function dressFigure(look) {
+  Character.render($('figure'), {
+    bottom: look.bottom?.art,
+    top: look.top?.art,
+    outer: look.outer?.art,
+    acc: look.acc?.art,
+  });
+  const described = Object.entries(Coach.SLOT_LABEL)
+    .filter(([slot]) => look[slot])
+    .map(([slot, label]) => `${label} ${look[slot].name}`);
+  $('figure').setAttribute('aria-label', `추천 옷을 입은 캐릭터: ${described.join(', ')}`);
+}
+
+// 추천안 카드: 룩 이름 · 상의/하의/겉옷/소품 줄 · 코치 한마디. 누르면 캐릭터가 그 옷으로
+function renderLookCards(looks, changed) {
+  const list = $('lookList');
+  list.textContent = '';
+  looks.forEach((look, i) => {
+    const li = document.createElement('li');
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'look-card';
+    card.dataset.index = String(i);
+    card.setAttribute('aria-pressed', String(i === state.selected));
+    if (changed) card.classList.add('flash');
+
+    const title = document.createElement('span');
+    title.className = 'look-title';
+    title.textContent = Coach.lookTitle(look);
+    card.append(title);
+
+    const rows = document.createElement('span');
+    rows.className = 'look-rows';
+    for (const [slot, label] of Object.entries(Coach.SLOT_LABEL)) {
+      const item = look[slot];
+      if (!item) continue;
+      const row = document.createElement('span');
+      row.className = 'look-row';
+      const lab = document.createElement('span');
+      lab.className = 'look-label';
+      lab.textContent = label;
+      const icon = document.createElement('span');
+      icon.className = 'look-icon';
+      icon.textContent = item.icon ?? '';
+      if (item.color) {
+        // 옷장 옷은 색 동그라미로
+        const dot = document.createElement('span');
+        dot.className = 'dot';
+        dot.style.background = item.color;
+        icon.append(dot);
+      }
+      const name = document.createElement('span');
+      name.className = 'look-name';
+      name.textContent = item.name;
+      row.append(lab, icon, name);
+      rows.append(row);
+    }
+    card.append(rows);
+
+    const tip = document.createElement('span');
+    tip.className = 'look-tip';
+    tip.textContent = look.tip;
+    card.append(tip);
+
+    li.append(card);
+    list.append(li);
+  });
+}
+
+// "다른 추천안" 버튼 · 옷장 안내
 function renderClosetNote(pick) {
   const more = $('nextComboBtn');
-  more.hidden = !(pick.combo && pick.count > 1);
-  if (pick.combo) $('comboCount').textContent = `${pick.index + 1}/${pick.count}`;
-  $('closetHint').hidden = Boolean(pick.combo);
+  more.hidden = !(pick.looks && pick.pageCount > 1);
+  if (pick.looks) $('comboCount').textContent = `${pick.page + 1}/${pick.pageCount}`;
+  $('closetHint').hidden = Boolean(pick.looks);
   $('closetMissing').textContent = pick.missing ? ` (이 온도에 맞는 ${pick.missing.join('·')} 없음)` : '';
-}
-
-// 우산 + 기존 소품을 한 칸에 합친다
-function mergeItems(extra, base) {
-  if (!base) return extra;
-  return {
-    icon: `${extra.icon}${base.icon ?? ''}`,
-    name: `${extra.name} · ${base.name}`,
-    color: base.color,
-    art: [].concat(extra.art ?? [], base.art ?? []), // 우산을 먼저 그려야 장갑이 손잡이 위로 온다
-  };
 }
 
 function renderSlider() {
@@ -543,7 +563,17 @@ function init() {
     state.combo.index += 1;
     renderOutfit();
   });
-  // 옷장이 바뀌면 첫 조합부터 다시
+  // 카드를 누르면 캐릭터가 그 추천안으로
+  $('lookList').addEventListener('click', (e) => {
+    const card = e.target.closest('.look-card');
+    if (!card) return;
+    state.selected = Number(card.dataset.index);
+    for (const c of $('lookList').querySelectorAll('.look-card')) {
+      c.setAttribute('aria-pressed', String(c === card));
+    }
+    dressFigure(state.looks[state.selected]);
+  });
+  // 옷장이 바뀌면 첫 묶음부터 다시
   Wardrobe.onChange(() => {
     state.combo = { key: '', index: 0 };
     renderOutfit();
