@@ -156,6 +156,20 @@ test('코치 한마디 규칙: 둘 다 무채색 · 상의만 무채색 · 같�
     Coach.coachTip({ top: c('#ffffff'), bottom: c('#111111'), outer: c('#ffffff') }),
     '무채색끼리라 차분하고 깔끔해요',
   );
+  
+  // 겉옷과 하의가 같은 유채색 계열일 때 새 조언 문구가 덧붙는지
+  const sameColorOuterBottom = Coach.coachTip({ top: c('#ffffff'), bottom: c('#2a5bd7'), outer: c('#1d3f9a') });
+  assert.match(sameColorOuterBottom, /겉옷과 하의 색이 비슷해 한 덩어리로 보여요. 상의로 끊어 주세요/);
+  
+  // 겉옷이 없거나 무채색이거나 하의와 색 계열이 다를 때는 새 조언 문구가 덧붙지 않는지
+  const noOuter = Coach.coachTip({ top: c('#ffffff'), bottom: c('#2a5bd7') });
+  assert.ok(!noOuter.includes('겉옷과 하의 색이 비슷해'), noOuter);
+  
+  const neutralOuter = Coach.coachTip({ top: c('#ffffff'), bottom: c('#2a5bd7'), outer: c('#8a8a8a') });
+  assert.ok(!neutralOuter.includes('겉옷과 하의 색이 비슷해'), neutralOuter);
+  
+  const differentColorOuterBottom = Coach.coachTip({ top: c('#ffffff'), bottom: c('#2a5bd7'), outer: c('#d02020') });
+  assert.ok(!differentColorOuterBottom.includes('겉옷과 하의 색이 비슷해'), differentColorOuterBottom);
 });
 
 test("6. 상의는 맞는데 하의가 없으면 { missing: ['하의'] } 를 돌려준다 (기존 동작 유지)", () => {

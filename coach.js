@@ -28,6 +28,7 @@
 
   const COACH_ADDONS = [
     (c) => (c.outer && c.outer !== N && c.outer === c.top ? '겉옷과 상의 색이 비슷하니 하의로 끊어 주세요' : null),
+    (c) => (c.outer && c.outer !== N && c.outer === c.bottom ? '겉옷과 하의 색이 비슷해 한 덩어리로 보여요. 상의로 끊어 주세요' : null),
   ];
 
   /*
