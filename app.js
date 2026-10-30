@@ -395,7 +395,7 @@ function renderHero() {
   line.append(rain);
 }
 
-function renderOutfit() {
+function renderOutfit(direction = null) {
   const offset = SENSITIVITY[state.sense].offset;
   const base = baseTemp();
   const target = base + offset;
@@ -413,7 +413,7 @@ function renderOutfit() {
   }
   basis.append(` · ${band.label}`);
 
-  // 보여주는 추천안이 바뀌면 첫 카드를 입힌다
+  // 보여주는 추천안이 바뀌면 첫 코디부터 보여준다
   const sig = JSON.stringify(looks.map((look) => [Coach.lookTitle(look), look.outer?.name, look.acc?.name]));
   const changed = sig !== state.looksSig;
   if (changed) {
@@ -424,8 +424,17 @@ function renderOutfit() {
 
   state.looks = looks;
   renderClosetNote(pick);
-  renderLookCards(looks, changed);
+  renderLookSlide(looks, direction);
   dressFigure(looks[state.selected]);
+}
+
+// 코디 넘기기 (버튼 · 스와이프 · 점 클릭)
+function selectLook(index, direction = null) {
+  if (index < 0 || index >= state.looks.length || index === state.selected) return;
+  const dir = direction || (index > state.selected ? 'next' : 'prev');
+  state.selected = index;
+  renderLookSlide(state.looks, dir);
+  dressFigure(state.looks[state.selected]);
 }
 
 // 캐릭터: 고른 추천안을 그림으로 (겉옷이 null 이면 그 층은 비운다)
@@ -442,25 +451,55 @@ function dressFigure(look) {
   $('figure').setAttribute('aria-label', `추천 옷을 입은 캐릭터: ${described.join(', ')}`);
 }
 
-// 추천안 카드: 룩 이름 · 상의/하의/겉옷/소품 줄 · 코치 한마디. 누르면 캐릭터가 그 옷으로
-function renderLookCards(looks, changed) {
-  const list = $('lookList');
-  list.textContent = '';
-  looks.forEach((look, i) => {
-    const li = document.createElement('li');
-    const card = document.createElement('button');
-    card.type = 'button';
-    card.className = 'look-card';
-    card.dataset.index = String(i);
-    card.setAttribute('aria-pressed', String(i === state.selected));
-    if (changed) card.classList.add('flash');
+// 현재 보고 있는 코디 설명과 슬라이더 컨트롤 (좌우 버튼 · 인디케이터)
+function renderLookSlide(looks, direction = null) {
+  const total = looks.length;
+  const current = state.selected;
+  const look = looks[current];
 
-    const title = document.createElement('span');
+  // 1. 좌우 넘기기 버튼 활성/비활성
+  const prevBtn = $('prevLookBtn');
+  const nextBtn = $('nextLookBtn');
+  if (prevBtn) {
+    prevBtn.disabled = current <= 0;
+  }
+  if (nextBtn) {
+    nextBtn.disabled = current >= total - 1;
+  }
+
+  // 2. 인디케이터 (점 + 쪽수)
+  const dots = $('slideDots');
+  if (dots) {
+    dots.textContent = '';
+    looks.forEach((_, i) => {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'slide-dot';
+      if (i === current) dot.classList.add('active');
+      dot.dataset.index = String(i);
+      dot.setAttribute('aria-label', `${i + 1}번째 코디`);
+      dot.setAttribute('aria-current', String(i === current));
+      dots.append(dot);
+    });
+  }
+  const count = $('slideCount');
+  if (count) {
+    count.textContent = total > 0 ? `${current + 1} / ${total}` : '';
+  }
+
+  // 3. 현재 코디 설명 (룩 이름 · 품목 줄 · 코치 한마디)
+  const detail = $('lookDetail');
+  if (detail && look) {
+    detail.textContent = '';
+    const card = document.createElement('div');
+    card.className = 'look-card current';
+
+    const title = document.createElement('div');
     title.className = 'look-title';
     title.textContent = Coach.lookTitle(look);
     card.append(title);
 
-    const rows = document.createElement('span');
+    const rows = document.createElement('div');
     rows.className = 'look-rows';
     for (const [slot, label] of Object.entries(Coach.SLOT_LABEL)) {
       const item = look[slot];
@@ -488,14 +527,23 @@ function renderLookCards(looks, changed) {
     }
     card.append(rows);
 
-    const tip = document.createElement('span');
+    const tip = document.createElement('div');
     tip.className = 'look-tip';
     tip.textContent = look.tip;
     card.append(tip);
 
-    li.append(card);
-    list.append(li);
-  });
+    detail.append(card);
+  }
+
+  // 4. 슬라이드 애니메이션
+  const fig = $('figure');
+  if (direction && fig) {
+    fig.classList.remove('slide-next', 'slide-prev');
+    if (detail) detail.classList.remove('fade');
+    if (typeof fig.offsetWidth === 'number') void fig.offsetWidth;
+    fig.classList.add(direction === 'next' ? 'slide-next' : 'slide-prev');
+    if (detail) detail.classList.add('fade');
+  }
 }
 
 // "다른 추천안" 버튼 · 옷장 안내
@@ -563,16 +611,73 @@ function init() {
     state.combo.index += 1;
     renderOutfit();
   });
-  // 카드를 누르면 캐릭터가 그 추천안으로
-  $('lookList').addEventListener('click', (e) => {
-    const card = e.target.closest('.look-card');
-    if (!card) return;
-    state.selected = Number(card.dataset.index);
-    for (const c of $('lookList').querySelectorAll('.look-card')) {
-      c.setAttribute('aria-pressed', String(c === card));
+
+  // 캐릭터 그림 위에서 좌우 스와이프 (왼쪽: 다음 코디, 오른쪽: 이전 코디)
+  const fig = $('figure');
+  const stage = $('figureStage') || fig;
+  let touchStartX = 0;
+  let touchStartY = 0;
+
+  function onTouchStart(e) {
+    if (!e.touches || !e.touches.length) return;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }
+
+  function onTouchEnd(e) {
+    if (!e.changedTouches || !e.changedTouches.length) return;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    // 수평 이동이 수직 이동보다 크고 30px 이상일 때 스와이프로 판정
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 30) {
+      if (dx < 0) {
+        // 왼쪽으로 넘기면 다음 코디
+        if (state.selected < state.looks.length - 1) {
+          selectLook(state.selected + 1, 'next');
+        }
+      } else {
+        // 오른쪽으로 넘기면 이전 코디
+        if (state.selected > 0) {
+          selectLook(state.selected - 1, 'prev');
+        }
+      }
     }
-    dressFigure(state.looks[state.selected]);
-  });
+  }
+
+  if (fig) {
+    fig.addEventListener('touchstart', onTouchStart, { passive: true });
+    fig.addEventListener('touchend', onTouchEnd, { passive: true });
+  }
+  if (stage && stage !== fig) {
+    stage.addEventListener('touchstart', onTouchStart, { passive: true });
+    stage.addEventListener('touchend', onTouchEnd, { passive: true });
+  }
+
+  // 좌우 넘기기 버튼
+  const prevBtn = $('prevLookBtn');
+  if (prevBtn) {
+    prevBtn.addEventListener('click', () => {
+      if (state.selected > 0) selectLook(state.selected - 1, 'prev');
+    });
+  }
+  const nextBtn = $('nextLookBtn');
+  if (nextBtn) {
+    nextBtn.addEventListener('click', () => {
+      if (state.selected < state.looks.length - 1) selectLook(state.selected + 1, 'next');
+    });
+  }
+
+  // 인디케이터 점 클릭
+  const dots = $('slideDots');
+  if (dots) {
+    dots.addEventListener('click', (e) => {
+      const dot = e.target.closest('.slide-dot');
+      if (!dot) return;
+      const idx = Number(dot.dataset.index);
+      if (!Number.isNaN(idx)) selectLook(idx);
+    });
+  }
+
   // 옷장이 바뀌면 첫 묶음부터 다시
   Wardrobe.onChange(() => {
     state.combo = { key: '', index: 0 };

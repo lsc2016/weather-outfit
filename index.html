@@ -48,14 +48,26 @@
       <p class="hero-line" id="weatherLine">날씨를 불러오는 중…</p>
     </section>
 
-    <!-- 2. 주 영역: 캐릭터 + 추천안 카드 2~3장 (카드를 누르면 캐릭터가 그 옷으로) -->
+    <!-- 2. 주 영역: 캐릭터 슬라이드 + 현재 코디 설명 (좌우로 넘겨 코디 확인) -->
     <section class="outfit" aria-labelledby="outfitTitle">
-      <div class="figure" id="figure" role="img" aria-label="추천 옷을 입은 캐릭터"></div>
       <div class="outfit-head">
         <h1 id="outfitTitle">오늘의 추천</h1>
         <p class="basis" id="basis"></p>
       </div>
-      <ul class="look-list" id="lookList" aria-live="polite"></ul>
+      <div class="figure-stage" id="figureStage">
+        <div class="figure" id="figure" role="img" aria-label="추천 옷을 입은 캐릭터"></div>
+        <button type="button" class="slide-btn prev" id="prevLookBtn" aria-label="이전 코디">
+          <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="slide-btn next" id="nextLookBtn" aria-label="다음 코디">
+          <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20"><path d="M9 18l6-6-6-6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="slide-indicator" id="slideIndicator">
+        <div class="slide-dots" id="slideDots" role="tablist" aria-label="코디 위치"></div>
+        <span class="slide-count" id="slideCount" aria-live="polite"></span>
+      </div>
+      <div class="look-detail" id="lookDetail" aria-live="polite"></div>
       <div class="outfit-more">
         <button type="button" class="chip-btn" id="nextComboBtn" hidden>↻ 다른 추천안 <span id="comboCount"></span></button>
         <p class="closet-hint" id="closetHint" hidden><a href="#closet">옷장</a>에 추가하면 내 옷으로 추천해요<span id="closetMissing"></span></p>
