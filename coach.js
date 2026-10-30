@@ -7,7 +7,15 @@
  * 추천안 하나 = { top, bottom, outer, acc, tip }
  *  - 기본 추천: app.js 의 OUTFIT_TABLE 구간마다 적힌 looks 그대로 (tip 은 사람이 적은 것)
  *  - 옷장 추천: 옷장 옷으로 만든 조합. 한 번에 최대 3개, 서로 상의·하의 쌍이 다르게.
+ *    조합마다 점수(아래 SCORE)를 매겨 높은 것부터, 점수가 같으면 날짜 씨앗으로 섞은 순서.
  *    tip 은 아래 COACH_RULES 로 색을 보고 만든다.
+ *
+ * ■ 점수
+ *  - 보온: 상의 + 하의 + 겉옷 따뜻한 정도 합을 WARMTH_TABLE 범위 가운데값의 합과 비교.
+ *    겉옷이 있는 구간에서는 상의 · 겉옷을 범위에서 WARMTH_SLACK 만큼 벗어나도 후보로 둔다
+ *    (얇은 상의 + 두꺼운 겉옷처럼 겹쳐 입기). 합이 WARMTH_MAX_GAP 넘게 벗어나면 뺀다.
+ *    하의 · 소품은 범위 그대로.
+ *  - 색: 상·하의 밝기 차이, 같은 계열끼리 밝기까지 비슷한지, 쨍한 색이 몇 벌인지.
  *
  * ■ 코치 한마디 규칙
  *  - COACH_RULES: 위에서부터 먼저 맞는 규칙 하나의 문장을 쓴다. 함수 하나 = 규칙 하나.
@@ -33,7 +41,7 @@
 
   /*
    * 색 조합 규칙
-   *  - 상의와 하의가 같은 색 계열이면 피한다 (그런 조합만 있으면 그래도 보여준다).
+   *  - 상의와 하의가 같은 색 계열이면 점수를 깎는다 (밝기 차이가 크면 조금만 — 톤온톤).
    *  - 무채색(검정 · 흰 · 회 · 베이지)은 뭐든 어울린다.
    * 색 계열은 색상(hue, 0~360) 범위로 나눈다. max 미만이면 그 계열.
    */
@@ -45,6 +53,24 @@
 
   const SLOT_LABEL = { top: '상의', bottom: '하의', outer: '겉옷', acc: '소품' };
   const PER_PAGE = 3; // 한 번에 보여주는 추천안 수
+
+  const WARMTH_SLACK = 1;     // 겉옷 있는 구간에서 상의 · 겉옷이 범위를 벗어나도 되는 정도
+  const WARMTH_MAX_GAP = 1;   // 따뜻한 정도 합이 필요한 값과 이만큼까지 달라도 됨
+
+  // 점수 (더해서 높은 순). 고치면 순서만 바뀌고, 빠지는 조합은 없다 (보온 합만 거른다).
+  const SCORE = {
+    warmthGap: -2,      // 따뜻한 정도 합이 필요한 값과 1 다를 때마다
+    outOfRange: -1,     // 상의 · 겉옷이 제 범위를 벗어날 때마다 (겹쳐 입기는 되지만 딱 맞는 게 먼저)
+    contrastHigh: 2,    // 상·하의 밝기 차이 0.3 이상
+    contrastMid: 1,     // 상·하의 밝기 차이 0.15 이상
+    sameFamilyFlat: -3, // 상·하의가 같은 유채색 계열에 밝기도 비슷 (한 덩어리)
+    sameFamily: -1,     // 상·하의가 같은 유채색 계열이지만 밝기 차이가 있음 (톤온톤)
+    outerFlat: -1,      // 겉옷이 상의나 하의와 같은 유채색 계열에 밝기도 비슷
+    extraVivid: -2,     // 쨍한 색이 두 벌째부터 한 벌마다
+    nearPage: 1,        // 묶음 안 다양성을 위해 이만큼 낮은 점수까지는 당겨 온다
+  };
+  const CONTRAST_HIGH = 0.3;
+  const CONTRAST_MID = 0.15;
 
   /* ===== 색 ===== */
 
@@ -71,11 +97,60 @@
     return COLOR_FAMILIES.find((f) => h < f.max).name;
   }
 
-  function colorsGo(combo) {
-    if (!combo.top || !combo.bottom) return true;
-    const a = colorFamily(combo.top.color);
-    const b = colorFamily(combo.bottom.color);
-    return a === N || b === N || a !== b;
+  // 쨍한 색: 무채색이 아니고 채도가 높으며 너무 어둡거나 밝지 않은 색
+  function isVivid(hex) {
+    const { s, l } = hexToHsl(hex);
+    return colorFamily(hex) !== N && s >= 0.55 && l >= 0.25 && l <= 0.75;
+  }
+
+  // 같은 유채색 계열에 밝기도 비슷하면 한 덩어리로 보인다
+  function looksFlat(a, b) {
+    const fa = colorFamily(a);
+    return fa !== N && fa === colorFamily(b) && Math.abs(hexToHsl(a).l - hexToHsl(b).l) < CONTRAST_MID;
+  }
+
+  // 조합 { top, bottom, outer } 의 색 점수
+  function colorScore(combo) {
+    const top = combo.top.color, bottom = combo.bottom.color, outer = combo.outer?.color;
+    let score = 0;
+    const dl = Math.abs(hexToHsl(top).l - hexToHsl(bottom).l);
+    if (dl >= CONTRAST_HIGH) score += SCORE.contrastHigh;
+    else if (dl >= CONTRAST_MID) score += SCORE.contrastMid;
+
+    const fTop = colorFamily(top);
+    if (fTop !== N && fTop === colorFamily(bottom)) score += dl < CONTRAST_MID ? SCORE.sameFamilyFlat : SCORE.sameFamily;
+    if (outer && (looksFlat(outer, top) || looksFlat(outer, bottom))) score += SCORE.outerFlat;
+
+    const vivid = [top, bottom, outer].filter((c) => c && isVivid(c)).length;
+    if (vivid > 1) score += SCORE.extraVivid * (vivid - 1);
+    return score;
+  }
+
+  /* ===== 보온 ===== */
+
+  const mid = (range) => (range[0] + range[1]) / 2;
+  const LAYERS = ['top', 'bottom', 'outer'];
+
+  // 이 구간에서 상의 + 하의 + 겉옷 따뜻한 정도 합으로 바라는 값
+  function warmthNeed(row) {
+    return LAYERS.reduce((sum, slot) => sum + (row[slot] ? mid(row[slot]) : 0), 0);
+  }
+
+  // 칸마다 후보로 둘 따뜻한 정도 범위 (겉옷 있는 구간의 상의 · 겉옷만 넓힌다)
+  function slotRange(row, slot) {
+    const range = row[slot];
+    if (!range || !row.outer || (slot !== 'top' && slot !== 'outer')) return range;
+    return [range[0] - WARMTH_SLACK, range[1] + WARMTH_SLACK];
+  }
+
+  // 조합의 보온 점수 (합이 너무 벗어나면 null = 후보에서 뺌)
+  function warmthScore(combo, row) {
+    const total = LAYERS.reduce((sum, slot) => sum + (combo[slot] ? combo[slot].warmth : 0), 0);
+    const gap = Math.abs(total - warmthNeed(row));
+    if (gap > WARMTH_MAX_GAP) return null;
+    const outside = LAYERS.filter((slot) => combo[slot] && row[slot]
+      && (combo[slot].warmth < row[slot][0] || combo[slot].warmth > row[slot][1])).length;
+    return SCORE.warmthGap * gap + SCORE.outOfRange * outside;
   }
 
   // 같은 씨앗이면 같은 순서로 섞는다 (날마다 첫 추천이 바뀌게)
@@ -127,15 +202,18 @@
 
   const pairKey = (combo) => `${combo.top.id}|${combo.bottom.id}`;
 
-  // 상·하의 쌍 목록을 최대 3개씩 묶는다. 묶음 안에서는 상의도 하의도 다른 것 먼저, 그다음 한쪽만 다른 것.
+  // 점수 순 상·하의 쌍 목록을 최대 3개씩 묶는다. 묶음 안에서는 상의도 하의도 다른 것 먼저
+  // (남은 것 중 최고점보다 SCORE.nearPage 넘게 낮은 것은 당겨 오지 않음), 그다음 한쪽만 다른 것.
   function groupPairs(combos) {
     const left = combos.slice();
     const pages = [];
     while (left.length) {
       const page = [left.shift()];
       while (page.length < PER_PAGE && left.length) {
-        let i = left.findIndex((c) => page.every((p) => p.top.id !== c.top.id && p.bottom.id !== c.bottom.id));
-        if (i < 0) i = 0; // 쌍은 이미 서로 다르므로 남은 것 중 맨 앞 = 한쪽만 다른 것
+        const floor = left[0].score - SCORE.nearPage;
+        let i = left.findIndex((c) => c.score >= floor
+          && page.every((p) => p.top.id !== c.top.id && p.bottom.id !== c.bottom.id));
+        if (i < 0) i = 0; // 쌍은 이미 서로 다르므로 남은 것 중 맨 앞 = 점수가 가장 높은 것
         page.push(left.splice(i, 1)[0]);
       }
       pages.push(page);
@@ -148,6 +226,7 @@
    *  opts = { items: 옷장 옷 배열, temp: 보정한 온도, warmthTable: WARMTH_TABLE, seed: 날짜 글자, page: 묶음 번호 }
    *  - 옷장이 비었으면 { empty: true }
    *  - 맞는 옷이 없는 칸이 있으면 { missing: ['겉옷'] } (소품은 없어도 됨 → acc 가 null)
+   *  - 칸마다 옷은 있지만 합치면 너무 얇거나 두꺼우면 { noFit: true }
    *  - 아니면 { looks: [{ top, bottom, outer, acc, tip }], key, page, pageCount }
    *    key 는 온도 구간 (구간이 바뀌면 첫 묶음부터 보여주려고), page 는 pageCount 로 돌린 값.
    */
@@ -158,7 +237,7 @@
     const pools = {};
     const missing = [];
     for (const slot of Object.keys(SLOT_LABEL)) {
-      const range = row[slot];
+      const range = slotRange(row, slot);
       const fits = range
         ? items.filter((it) => it.type === slot && it.warmth >= range[0] && it.warmth <= range[1])
         : [];
@@ -172,18 +251,24 @@
     for (const top of pools.top)
       for (const bottom of pools.bottom)
         for (const outer of pools.outer)
-          for (const acc of pools.acc) all.push({ top, bottom, outer, acc });
-    const good = all.filter(colorsGo);
-    const shuffled = seededShuffle(good.length ? good : all, `${seed}|${row.min}`);
+          for (const acc of pools.acc) {
+            const combo = { top, bottom, outer, acc };
+            const warmth = warmthScore(combo, row);
+            if (warmth !== null) all.push({ ...combo, score: warmth + colorScore(combo) });
+          }
+    if (!all.length) return { noFit: true };
 
-    // 겉옷 · 소품만 다른 조합은 같은 추천안: 상·하의 쌍마다 섞인 순서에서 처음 나온 것만
+    // 점수 높은 순, 같으면 섞인 순서 (sort 는 안정 정렬)
+    const ranked = seededShuffle(all, `${seed}|${row.min}`).sort((a, b) => b.score - a.score);
+
+    // 겉옷 · 소품만 다른 조합은 같은 추천안: 상·하의 쌍마다 점수가 가장 높은 것만
     const seen = new Set();
-    const combos = shuffled.filter((c) => !seen.has(pairKey(c)) && seen.add(pairKey(c)));
+    const combos = ranked.filter((c) => !seen.has(pairKey(c)) && seen.add(pairKey(c)));
 
     const pages = groupPairs(combos);
     const at = ((page % pages.length) + pages.length) % pages.length;
     return {
-      looks: pages[at].map((c) => ({ ...c, tip: coachTip(c) })),
+      looks: pages[at].map(({ score, ...c }) => ({ ...c, tip: coachTip(c) })),
       key: String(row.min),
       page: at,
       pageCount: pages.length,
@@ -214,8 +299,8 @@
   }
 
   const Coach = {
-    COACH_RULES, COACH_ADDONS, COLOR_FAMILIES, SLOT_LABEL, PER_PAGE,
-    hexToHsl, colorFamily, colorsGo, seededShuffle,
+    COACH_RULES, COACH_ADDONS, COLOR_FAMILIES, SLOT_LABEL, PER_PAGE, SCORE, WARMTH_SLACK, WARMTH_MAX_GAP,
+    hexToHsl, colorFamily, isVivid, colorScore, warmthNeed, warmthScore, seededShuffle,
     coachTip, findRow, defaultLooks, pickFromCloset, mergeItems, addRain, lookTitle,
   };
 

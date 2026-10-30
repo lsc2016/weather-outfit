@@ -208,3 +208,58 @@ test('비 오는 날엔 모든 추천안 소품에 우산이 붙는다', () => {
   // 원래 표는 그대로
   assert.ok(OUTFIT_TABLE.every((b) => b.looks.every((l) => !l.acc || !/우산/.test(l.acc.name))));
 });
+
+test('보온: 얇은 상의 + 두꺼운 겉옷도 추천되지만, 범위에 딱 맞는 조합이 먼저', () => {
+  // 5–8° 구간: 상의 · 하의 · 겉옷 모두 [4, 4] → 합 12 가 바라는 값
+  const items = [
+    cloth('top', '두꺼운 니트', '#ffffff', 4),
+    cloth('top', '얇은 니트', '#f5f5f5', 3),
+    cloth('bottom', '검정 기모 바지', '#111111', 4),
+    cloth('outer', '울 코트', '#8a8a8a', 4),
+    cloth('outer', '패딩', '#555555', 5),
+  ];
+  const pick = Coach.pickFromCloset({ items, temp: 7, warmthTable: WARMTH_TABLE, seed: SEED });
+  assert.ok(pick.looks, JSON.stringify(pick));
+  assert.deepStrictEqual(pick.looks.map((l) => [l.top.name, l.outer.name]), [
+    ['두꺼운 니트', '울 코트'],
+    ['얇은 니트', '패딩'], // 3 + 4 + 5 = 12, 겹쳐 입기
+  ]);
+  assert.ok(pick.looks.every((l) => !('score' in l)), '점수는 밖으로 안 나감');
+});
+
+test('보온: 칸마다 옷은 있어도 합이 너무 모자라면 { noFit: true }, 겉옷 없는 구간은 범위 그대로', () => {
+  const thin = [
+    cloth('top', '얇은 니트', '#ffffff', 3),
+    cloth('bottom', '기모 바지', '#111111', 4),
+    cloth('outer', '재킷', '#8a8a8a', 3), // 3 + 4 + 3 = 10, 12 에서 2 모자람
+  ];
+  assert.deepStrictEqual(Coach.pickFromCloset({ items: thin, temp: 7, warmthTable: WARMTH_TABLE, seed: SEED }), { noFit: true });
+
+  // 23–27° 는 겉옷이 없는 구간 → 상의 범위 [1, 2] 를 넓히지 않는다 (니트는 안 됨)
+  const summer = [cloth('top', '니트', '#ffffff', 3), cloth('bottom', '반바지', '#111111', 1)];
+  assert.deepStrictEqual(Coach.pickFromCloset({ items: summer, temp: 25, warmthTable: WARMTH_TABLE, seed: SEED }), { missing: ['상의'] });
+});
+
+test('색 점수: 밝기 차이 있는 같은 계열(네이비 + 연청)은 괜찮고, 밝기도 비슷한 쨍한 같은 계열은 낮다', () => {
+  const c = (hex) => ({ color: hex });
+  assert.ok(Coach.colorScore({ top: c('#1f2f5a'), bottom: c('#9db8de') }) > 0);
+  assert.ok(Coach.colorScore({ top: c('#2a5bd7'), bottom: c('#1d3f9a') }) < 0);
+  // 흰 상의 + 검정 하의가 가장 무난
+  assert.ok(Coach.colorScore({ top: c('#ffffff'), bottom: c('#111111') })
+    > Coach.colorScore({ top: c('#d02020'), bottom: c('#f2d13a') }));
+});
+
+test('점수 낮은 조합(쨍한 빨강 + 쨍한 노랑)은 다양성 때문에 첫 묶음으로 당겨 오지 않는다', () => {
+  const items = [
+    cloth('top', '빨강 니트', '#d02020', 3),
+    cloth('top', '흰 셔츠', '#ffffff', 3),
+    cloth('bottom', '노랑 바지', '#f2d13a', 3),
+    cloth('bottom', '검정 바지', '#111111', 3),
+    greyJacket(),
+  ];
+  const first = Coach.pickFromCloset({ items, temp: 14, warmthTable: WARMTH_TABLE, seed: SEED });
+  const names = (looks) => looks.map(Coach.lookTitle);
+  assert.ok(!names(first.looks).includes('빨강 니트 + 노랑 바지'), names(first.looks).join(', '));
+  const second = Coach.pickFromCloset({ items, temp: 14, warmthTable: WARMTH_TABLE, seed: SEED, page: 1 });
+  assert.deepStrictEqual(names(second.looks), ['빨강 니트 + 노랑 바지']);
+});

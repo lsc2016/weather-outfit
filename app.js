@@ -144,6 +144,8 @@ const OUTFIT_TABLE = [
  * 옷장에 옷이 있으면 이 표의 범위 [최소, 최대] 에 드는 옷으로 조합을 만든다.
  *  - min 은 OUTFIT_TABLE 과 같은 구간. 높은 온도 순서를 지킬 것.
  *  - null 이면 그 칸은 필요 없음 (OUTFIT_TABLE 에서 null 인 칸과 맞춘다).
+ *  - 겉옷이 있는 구간에서는 상의 · 겉옷이 범위를 1 벗어나도 후보가 된다 (얇은 상의 + 두꺼운 겉옷).
+ *    대신 상의 + 하의 + 겉옷 합이 범위 가운데값의 합과 1 넘게 다르면 뺀다. 자세한 건 coach.js 맨 위 "점수".
  *  - 상의 · 하의 · 겉옷 중 맞는 옷이 하나라도 없으면 OUTFIT_TABLE 기본 추천을 보여준다.
  *    소품만 없으면 소품 칸은 기본 추천으로 채운다.
  */
@@ -552,7 +554,8 @@ function renderClosetNote(pick) {
   more.hidden = !(pick.looks && pick.pageCount > 1);
   if (pick.looks) $('comboCount').textContent = `${pick.page + 1}/${pick.pageCount}`;
   $('closetHint').hidden = Boolean(pick.looks);
-  $('closetMissing').textContent = pick.missing ? ` (이 온도에 맞는 ${pick.missing.join('·')} 없음)` : '';
+  $('closetMissing').textContent = pick.missing ? ` (이 온도에 맞는 ${pick.missing.join('·')} 없음)`
+    : pick.noFit ? ' (옷장 옷을 합치면 이 온도엔 너무 얇거나 두꺼움)' : '';
 }
 
 function renderSlider() {
