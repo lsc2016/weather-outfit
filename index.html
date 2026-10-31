@@ -21,6 +21,12 @@
 <body>
   <main class="app">
 
+    <!-- 길 잃지 않기: 모든 화면 왼쪽 위 앱 이름(누르면 오늘) · 오늘이 아닌 화면엔 "← 뒤로" -->
+    <header class="appbar">
+      <a class="brand" id="brandLink" href="#today">오늘뭐입지</a>
+      <button type="button" class="back-btn" id="backBtn" hidden>← 뒤로</button>
+    </header>
+
     <!-- ===== 탭 1. 오늘 ===== -->
     <div class="view" data-view="today">
 
@@ -33,6 +39,7 @@
           <span id="settingsLabel">보통</span> <span aria-hidden="true">▾</span>
         </button>
         <div class="settings-menu" id="settingsMenu" role="radiogroup" aria-label="체감 보정" hidden>
+          <button type="button" class="close-x" id="settingsCloseBtn" aria-label="닫기">✕</button>
           <p class="settings-title">나는 평소에…</p>
           <label><input type="radio" name="sense" value="cold"> 추위를 잘 탐 <small>−2°</small></label>
           <label><input type="radio" name="sense" value="normal"> 보통 <small>±0°</small></label>
@@ -198,9 +205,9 @@
     <form id="wearForm" novalidate>
       <header class="sheet-head">
         <h2 id="wearTitle">오늘 실제로 입은 옷</h2>
-        <button type="button" class="link-btn" id="closeWearBtn">닫기</button>
+        <button type="button" class="close-x" id="closeWearBtn" aria-label="닫기">✕</button>
       </header>
-      <p class="field-hint">추천과 다른 것만 바꿔 주세요. 옷장에 없는 옷은 두께만 골라도 돼요.</p>
+      <p class="field-hint">옷장에 없는 옷은 이름을 적고 두께를 골라 주세요. 겹쳐 입었으면 '+ 안에 입은 옷'을 눌러 주세요.</p>
       <div id="wearSlots"></div>
       <fieldset class="field">
         <legend>입어 보니 <small>(나중에 물어봐도 돼요)</small></legend>
@@ -222,7 +229,7 @@
     <form id="itemForm" novalidate>
       <header class="sheet-head">
         <h2 id="itemDialogTitle">옷 추가</h2>
-        <button type="button" class="link-btn" id="closeDialogBtn">닫기</button>
+        <button type="button" class="close-x" id="closeDialogBtn" aria-label="닫기">✕</button>
       </header>
 
       <fieldset class="field">

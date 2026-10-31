@@ -126,6 +126,38 @@ body {
 }
 .place { font-size: 14px; color: var(--text-2); }
 
+/* 길 잃지 않기: 왼쪽 위 앱 이름 · "← 뒤로" */
+.appbar { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+.brand { font-size: 15px; font-weight: 700; color: var(--text); text-decoration: none; letter-spacing: -0.02em; }
+.back-btn {
+  font: inherit;
+  font-size: 14px;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 4px 2px;
+  cursor: pointer;
+}
+.back-btn[hidden] { display: none; }
+
+/* 겹쳐 뜨는 창 오른쪽 위 ✕ */
+.close-x {
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  background: none;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.close-x:hover { background: var(--accent-soft); }
+.settings-menu .close-x { position: absolute; top: 4px; right: 4px; width: 30px; height: 30px; font-size: 15px; }
+
 .settings { position: relative; }
 .settings-btn {
   font: inherit;
@@ -425,6 +457,26 @@ body {
 .seg.thick[hidden] { display: none; }
 .seg.thick span, .seg.feel span { font-size: 13px; padding: 8px 2px; }
 .seg.thick span { font-size: 12px; line-height: 1.25; height: 100%; display: grid; place-items: center; word-break: keep-all; }
+/* 옷장에 없는 옷: 이름 칸 · 자주 입는 이름 버튼 · 두께 */
+.wear-other { margin-top: 8px; }
+.wear-other[hidden] { display: none; }
+.wear-other input[type="text"] { width: 100%; }
+.name-hints { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.hint-btn {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+}
+/* 안에 겹쳐 입은 옷 */
+.inner-add { display: block; margin-top: 6px; font-size: 14px; }
+.inner-add[hidden], .wear-row-box[hidden] { display: none; }
+.wear-row-box.inner { margin-top: 8px; padding: 8px 0 0 12px; border-left: 2px solid var(--accent-soft); }
+.inner-head { margin: 0 0 6px; font-size: 12px; color: var(--text-3); }
 .seg.feel { flex-wrap: wrap; }
 .seg.feel label { flex: 1 1 40%; }
 

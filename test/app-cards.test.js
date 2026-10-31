@@ -69,14 +69,52 @@ class El {
     return out;
   }
   get offsetWidth() { return 0; }
+  showModal() { this.open = true; }
+  close() { this.open = false; }
 }
 
-function boot({ wardrobe = [], storage = {} } = {}) {
+// 아래 요소들을 모두 훑는다
+function walkEls(root, pred, out = []) {
+  for (const c of root.children) {
+    if (typeof c === 'string') continue;
+    if (pred(c)) out.push(c);
+    walkEls(c, pred, out);
+  }
+  return out;
+}
+
+// 주소(#…) · history 흉내: 주소를 바꾸면 새 칸이 쌓이고 hashchange 가 난다
+function fakeNav(hash) {
+  const listeners = {};
+  const nav = { stack: [{ hash, state: null }], i: 0, backs: 0 };
+  const fire = () => (listeners.hashchange || []).forEach((fn) => fn({}));
+  nav.location = {
+    get hash() { return nav.stack[nav.i].hash; },
+    set hash(v) {
+      const next = v.startsWith('#') ? v : `#${v}`;
+      if (next === nav.stack[nav.i].hash) return;
+      nav.stack = nav.stack.slice(0, nav.i + 1);
+      nav.stack.push({ hash: next, state: null });
+      nav.i += 1;
+      fire();
+    },
+  };
+  nav.history = {
+    get state() { return nav.stack[nav.i].state; },
+    replaceState(s) { nav.stack[nav.i].state = s; },
+    back() { nav.backs += 1; if (nav.i > 0) { nav.i -= 1; fire(); } },
+  };
+  nav.window = { addEventListener: (type, fn) => (listeners[type] ||= []).push(fn), scrollTo() {} };
+  return nav;
+}
+
+function boot({ wardrobe = [], storage = {}, hash = '#today', closet = false } = {}) {
   const backupParts = {};
   const changeListeners = [];
   const els = {};
   const getEl = (id) => (els[id] ||= new El());
   const renders = [];
+  const nav = fakeNav(hash);
   const ctx = {
     console,
     Date,
@@ -91,8 +129,9 @@ function boot({ wardrobe = [], storage = {} } = {}) {
       querySelectorAll: () => [],
       addEventListener() {},
     },
-    window: { addEventListener() {}, scrollTo() {} },
-    location: { hash: '#today' },
+    window: nav.window,
+    location: nav.location,
+    history: nav.history,
     navigator: {},
     localStorage: { getItem: (k) => storage[k] ?? null, setItem: (k, v) => { storage[k] = String(v); } },
     fetch: () => new Promise(() => {}), // 시험에서는 날씨를 안 가져온다 (applyWeather 로 직접 넣음)
@@ -107,14 +146,16 @@ function boot({ wardrobe = [], storage = {} } = {}) {
       },
       onChange: (fn) => changeListeners.push(fn),
       addBackupPart: (name, part) => { backupParts[name] = part; },
+      TYPES: { top: '상의', bottom: '하의', outer: '겉옷', acc: '소품' },
     },
   };
   ctx.window.Coach = undefined;
   vm.createContext(ctx);
   vm.runInContext(read('coach.js'), ctx); // module 이 없으니 window.Coach 로 나온다
   ctx.Coach = ctx.window.Coach;
+  if (closet) vm.runInContext(read('closet.js'), ctx); // 옷 추가 · 수정 시트 (index.html 순서대로 app.js 앞)
   vm.runInContext(read('app.js'), ctx);
-  return { ctx, els, renders, storage, backupParts, run: (code) => vm.runInContext(code, ctx) };
+  return { ctx, els, renders, storage, backupParts, nav, run: (code) => vm.runInContext(code, ctx) };
 }
 
 function swipe(el, dx, dy = 0) {
@@ -388,7 +429,7 @@ test('"다른 옷 입었어요": 추천보다 얇게 입고 딱 좋았으면 보
 
   // 시트에 미리 고를 값 = 지금 추천안 (14° 구간: 상의 · 하의 · 겉옷 모두 3)
   const preset = JSON.parse(JSON.stringify(run(`wearPreset(${JSON.stringify(today)})`)));
-  assert.deepStrictEqual(preset, { top: 'a', bottom: 'p', outer: 'j' });
+  assert.deepStrictEqual(preset, { slots: { top: 'a', bottom: 'p', outer: 'j' }, inner: {}, names: {} });
 
   // 반팔 티 + 검정 슬랙스, 겉옷 안 입음 → 합 4 (추천은 9), 딱 좋았어요
   run(`saveWear(${JSON.stringify(today)}, { slots: { top: 't', bottom: 'p', outer: 'none' }, feel: 'good' })`);
@@ -400,12 +441,13 @@ test('"다른 옷 입었어요": 추천보다 얇게 입고 딱 좋았으면 보
   // 오늘 기록이 "다른 옷"이면 카드에 안내 + 고치기
   assert.match(els.lookDetail.textContent, /오늘 기록: 반팔 티 \+ 검정 슬랙스/);
   assert.match(els.lookDetail.textContent, /입은 옷 고치기/);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(run(`wearPreset(${JSON.stringify(today)})`))), { top: 't', bottom: 'p', outer: 'none' });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(run(`wearPreset(${JSON.stringify(today)})`))).slots, { top: 't', bottom: 'p', outer: 'none' });
 
   // 옷장에 없는 옷: 두께 4 상의 + 두께 4 하의 + 두께 5 겉옷, 느낌은 나중에
   run(`saveWear(${JSON.stringify(today)}, { slots: { top: 'w4', bottom: 'w4', outer: 'w5' }, feel: '' })`);
   const thick = JSON.parse(storage['outfit.worn.v1'])[today];
-  assert.deepStrictEqual([thick.title, thick.warmth, thick.ids], ['두꺼운 상의 + 두꺼운 하의', 13, []]);
+  // 겉옷을 입었으면 겉옷도 title 에
+  assert.deepStrictEqual([thick.title, thick.warmth, thick.ids], ['두꺼운 상의 + 두꺼운 하의 + 아주 두꺼운 겉옷', 13, []]);
   assert.strictEqual(JSON.parse(storage['outfit.feedback.v1']).log[today], undefined, '옷을 바꾸면 오늘 답은 지움');
 });
 
@@ -426,4 +468,267 @@ test('같은 상의로 두 번 더웠으면 "따뜻한 정도 3 → 2로 낮출�
   assert.match(els.feedbackBox.textContent, /고쳤어요/);
   els.feedbackBox.dispatch('click', els.feedbackBox.querySelectorAll('.chip-btn')[0]);
   assert.strictEqual(els.feedbackBox.hidden, true);
+});
+
+/* ===== "다른 옷 입었어요" 시트: 겹쳐 입은 옷 · 옷장에 없는 옷 이름 ===== */
+
+// 시트의 한 줄 (top · bottom · outer · innerTop · innerBottom)
+const sheetRow = (run, key) => run(`wearRows[${JSON.stringify(key)}]`);
+// 라디오를 누른 것처럼: 같은 무리는 풀고 이것만 고른 뒤 change
+function choose(row, value) {
+  const input = row.radios.find((r) => r.value === value);
+  assert.ok(input, `${row.key} 줄에 ${value} 버튼이 있어야 함 (있는 것: ${row.radios.map((r) => r.value)})`);
+  for (const r of row.radios) r.checked = false;
+  input.checked = true;
+  input.dispatch('change', { target: input });
+}
+const hint = (row, name) => {
+  const btn = walkEls(row.other, (el) => el.dataset.name === name)[0];
+  assert.ok(btn, `${row.key} 줄에 "${name}" 버튼`);
+  btn.dispatch('click');
+};
+const thickOf = (row) => row.thick.find((r) => r.checked)?.value || '';
+const submitWear = (els) => els.wearForm.dispatch('submit', { target: els.wearForm, preventDefault() {} });
+const wearAct = (els, name) => els.lookDetail.querySelectorAll('.wear-row')[0].children.find((b) => b.dataset?.wear === name);
+
+test('겹쳐 입기 + 이름: 맨투맨 + 청바지(안에 내복) + 점퍼 → title · warmth 10 · names · inner 가 저장되고 화면에 보인다', () => {
+  const { els, storage, run } = boot(); // 옷장 비어 있음
+  run(`applyWeather(${JSON.stringify(WEATHER)})`);
+  const today = run('todayKey()');
+
+  els.lookDetail.dispatch('click', wearAct(els, 'other'));
+  assert.strictEqual(els.wearDialog.open, true);
+  // 기본 룩에서 열면 옷장에 없는 칸 이름에 그 룩 품목 이름이 미리 들어간다
+  const look = run('OUTFIT_TABLE[4].looks[0]');
+  assert.strictEqual(sheetRow(run, 'top').nameInput.value, look.top.name);
+
+  const top = sheetRow(run, 'top');
+  choose(top, 'other');
+  assert.strictEqual(top.other.hidden, false, '옷장에 없는 옷 → 이름 · 두께 칸');
+  hint(top, '맨투맨');
+  assert.deepStrictEqual([top.nameInput.value, thickOf(top)], ['맨투맨', '3']);
+
+  const bottom = sheetRow(run, 'bottom');
+  choose(bottom, 'other');
+  hint(bottom, '청바지');
+  const under = sheetRow(run, 'innerBottom');
+  assert.strictEqual(under.box.hidden, true, '안에 입은 옷 줄은 처음엔 닫혀 있음');
+  under.addBtn.dispatch('click');
+  assert.strictEqual(under.box.hidden, false);
+  assert.strictEqual(under.addBtn.hidden, true, '칸마다 하나까지');
+  choose(under, 'other');
+  hint(under, '내복');
+
+  const outer = sheetRow(run, 'outer');
+  choose(outer, 'other');
+  hint(outer, '점퍼');
+  assert.strictEqual(run('wearRows.innerOuter'), undefined, '겉옷엔 안에 입은 옷 없음');
+
+  submitWear(els);
+  assert.strictEqual(els.wearError.textContent, '');
+  assert.strictEqual(els.wearDialog.open, false);
+  const entry = JSON.parse(storage['outfit.worn.v1'])[today];
+  assert.strictEqual(entry.title, '맨투맨 + 청바지(안에 내복) + 점퍼');
+  assert.strictEqual(entry.warmth, 10);
+  assert.deepStrictEqual(entry.names, { top: '맨투맨', bottom: '청바지', outer: '점퍼', innerBottom: '내복' });
+  assert.deepStrictEqual(entry.inner, { bottom: 'w1' });
+  assert.deepStrictEqual(entry.slots, { top: 'w3', bottom: 'w3', outer: 'w3' });
+  assert.match(els.lookDetail.textContent, /오늘 기록: 맨투맨 \+ 청바지\(안에 내복\) \+ 점퍼/);
+
+  // 다시 열기: 이름 · 두께 · 안에 입은 옷이 그대로
+  els.lookDetail.dispatch('click', wearAct(els, 'other'));
+  const t = sheetRow(run, 'top');
+  const b = sheetRow(run, 'bottom');
+  const u = sheetRow(run, 'innerBottom');
+  const o = sheetRow(run, 'outer');
+  assert.deepStrictEqual([t.radios.find((r) => r.checked)?.value, t.nameInput.value, thickOf(t), t.other.hidden], ['other', '맨투맨', '3', false]);
+  assert.deepStrictEqual([b.nameInput.value, thickOf(b)], ['청바지', '3']);
+  assert.deepStrictEqual([u.box.hidden, u.radios.find((r) => r.checked)?.value, u.nameInput.value, thickOf(u)], [false, 'other', '내복', '1']);
+  assert.deepStrictEqual([o.nameInput.value, thickOf(o)], ['점퍼', '3']);
+  assert.strictEqual(sheetRow(run, 'innerTop').box.hidden, true);
+
+  // 고쳐서 다시 저장해도 같은 기록 (안에 입은 옷을 "안 입음"으로 닫으면 빠진다)
+  choose(u, 'none');
+  assert.strictEqual(u.box.hidden, true);
+  submitWear(els);
+  const fixed = JSON.parse(storage['outfit.worn.v1'])[today];
+  assert.deepStrictEqual([fixed.title, fixed.warmth, fixed.inner], ['맨투맨 + 청바지 + 점퍼', 9, undefined]);
+
+  // 백업 가져오기 길(normalizeWorn): 이름은 20자로, 이상한 칸은 버림
+  run(`setWorn({ [todayKey()]: { ids: [], title: 'x', slots: { top: 'w3' }, inner: { top: 'w1', outer: 'w2', bottom: 5 }, names: { top: '${'가'.repeat(30)}', foo: 'y', innerTop: '  ' } } })`);
+  const norm = JSON.parse(storage['outfit.worn.v1'])[today];
+  assert.deepStrictEqual([norm.inner, norm.names], [{ top: 'w1' }, { top: '가'.repeat(20) }]);
+});
+
+test('옷장 옷 겹쳐 입기: 청바지 + 안에 레깅스 → ids 에 둘 다, warmth 에 둘 다, 안에 입은 옷 목록엔 청바지가 없다', () => {
+  const wardrobe = [
+    { id: 't', type: 'top', name: '흰 셔츠', color: '#ffffff', warmth: 3 },
+    { id: 'j', type: 'bottom', name: '청바지', color: '#3b5b8f', warmth: 3 },
+    { id: 'l', type: 'bottom', name: '레깅스', color: '#1a1a1a', warmth: 1 },
+  ];
+  const { els, storage, run } = boot({ wardrobe });
+  run(`applyWeather(${JSON.stringify(WEATHER)})`);
+  const today = run('todayKey()');
+  run('openWearSheet(todayKey())');
+
+  choose(sheetRow(run, 'top'), 't');
+  const bottom = sheetRow(run, 'bottom');
+  choose(bottom, 'j');
+  const under = sheetRow(run, 'innerBottom');
+  under.addBtn.dispatch('click');
+  const values = under.radios.map((r) => r.value);
+  assert.ok(!values.includes('j'), `바깥에 고른 청바지는 빠짐: ${values}`);
+  assert.ok(values.includes('l') && values.includes('other') && values.includes('none'), `${values}`);
+  choose(under, 'l');
+  choose(sheetRow(run, 'outer'), 'none');
+  submitWear(els);
+
+  const entry = JSON.parse(storage['outfit.worn.v1'])[today];
+  assert.deepStrictEqual(entry.ids.slice().sort(), ['j', 'l', 't']);
+  assert.strictEqual(entry.warmth, 7);
+  assert.strictEqual(entry.title, '흰 셔츠 + 청바지(안에 레깅스)');
+  assert.deepStrictEqual(entry.inner, { bottom: 'l' });
+  // "최근 입은 옷은 뒤로" 에도 들어간다
+  assert.strictEqual(run(`Coach.wornDays(state.worn, todayKey())`).l, 0);
+
+  // 바깥을 레깅스로 바꾸면 안에 입은 옷 목록에서 레깅스가 빠지고 고른 것도 풀린다
+  run('openWearSheet(todayKey())');
+  choose(sheetRow(run, 'bottom'), 'l');
+  const u2 = sheetRow(run, 'innerBottom');
+  assert.ok(!u2.radios.map((r) => r.value).includes('l'));
+  assert.ok(u2.radios.map((r) => r.value).includes('j'));
+  assert.strictEqual(u2.radios.find((r) => r.checked), undefined);
+});
+
+test('조용한 대체 금지: 겉옷 "옷장에 없는 옷"인데 두께가 없으면 저장하지 않고 겉옷을 골라 달라고 한다', () => {
+  const { els, storage, run } = boot({ wardrobe: feedbackCloset() });
+  run(`applyWeather(${JSON.stringify(WEATHER)})`);
+  const today = run('todayKey()');
+  els.lookDetail.dispatch('click', wearAct(els, 'stamp'));
+  const before = storage['outfit.worn.v1'];
+
+  run('openWearSheet(todayKey())');
+  const outer = sheetRow(run, 'outer');
+  choose(outer, 'other');
+  assert.strictEqual(thickOf(outer), '');
+  outer.nameInput.value = '내 점퍼'; // 이름만 적고 두께는 비움
+  submitWear(els);
+  assert.match(els.wearError.textContent, /겉옷 두께를 골라 주세요/);
+  assert.strictEqual(els.wearDialog.open, true, '시트는 그대로');
+  assert.strictEqual(storage['outfit.worn.v1'], before, '오늘 기록은 바뀌지 않음');
+  assert.strictEqual(JSON.parse(storage['outfit.worn.v1'])[today].other, undefined);
+
+  // 안에 입은 옷도 같은 규칙
+  choose(outer, 'none');
+  const under = sheetRow(run, 'innerTop');
+  under.addBtn.dispatch('click');
+  choose(under, 'other');
+  under.nameInput.value = '히트텍';
+  submitWear(els);
+  assert.match(els.wearError.textContent, /안에 입은 상의 두께를 골라 주세요/);
+  assert.strictEqual(storage['outfit.worn.v1'], before);
+});
+
+test('예전 입은 기록(inner · names 없음, 지금 모양과 [옷 id] 모양 둘 다)도 시트가 열리고 "어땠어요?"를 묻는다', () => {
+  const { els, run } = boot({
+    wardrobe: feedbackCloset(),
+    storage: {
+      'outfit.worn.v1': JSON.stringify({
+        [daysAgo(2)]: ['a', 'p'],
+        [daysAgo(1)]: { ids: ['a'], title: '흰 셔츠 + 보통 하의', warmth: 6, need: 9, learned: 0, other: true, slots: { top: 'a', bottom: 'w3', outer: 'none' } },
+      }),
+    },
+  });
+  run(`applyWeather(${JSON.stringify(WEATHER)})`);
+  assert.match(els.feedbackBox.textContent, /어제 입은 흰 셔츠 \+ 보통 하의, 어땠어요\?/);
+  els.feedbackBox.dispatch('click', els.feedbackBox.querySelectorAll('.link-btn')[0]); // 사실 다른 옷 입었어요
+  assert.strictEqual(els.wearDialog.open, true);
+  const bottom = sheetRow(run, 'bottom');
+  assert.deepStrictEqual([bottom.radios.find((r) => r.checked)?.value, thickOf(bottom), bottom.nameInput.value], ['other', '3', '']);
+  assert.strictEqual(sheetRow(run, 'innerBottom').box.hidden, true);
+  run(`openWearSheet(${JSON.stringify(daysAgo(2))})`);
+  assert.strictEqual(sheetRow(run, 'top').radios.find((r) => r.checked)?.value, 'a');
+  assert.strictEqual(sheetRow(run, 'bottom').radios.find((r) => r.checked)?.value, 'p');
+});
+
+/* ===== 길 잃지 않기 ===== */
+
+test('길 잃지 않기: 모든 탭 왼쪽 위 앱 이름 → #today, 옷장 · 나 "← 뒤로" = 브라우저 뒤로가기 (바로 열었으면 #today)', () => {
+  // ① 화면 HTML: 앱 이름은 탭 화면(.view) 밖 맨 위에 있어 세 탭 모두에서 보인다
+  const html = read('index.html');
+  const appbar = html.indexOf('class="appbar"');
+  assert.ok(appbar > 0 && appbar < html.indexOf('class="view"'), '앱 이름 줄이 첫 탭 화면보다 위');
+  assert.match(html, /<a class="brand" id="brandLink" href="#today">오늘뭐입지<\/a>/);
+  assert.match(html, /id="backBtn" hidden>← 뒤로<\/button>/);
+
+  // 앱 안에서: 오늘 → 옷장 → 나
+  const { els, nav } = boot();
+  assert.strictEqual(els.backBtn.hidden, true, '첫 화면엔 뒤로 없음');
+  els.brandLink.dispatch('click');
+  assert.strictEqual(nav.location.hash, '#today');
+  for (const tab of ['#closet', '#me']) {
+    nav.location.hash = tab; // 하단 탭을 누른 것과 같다
+    assert.strictEqual(els.backBtn.hidden, false, `${tab} 에 뒤로`);
+    els.brandLink.dispatch('click');
+    assert.strictEqual(nav.location.hash, '#today', `${tab} 에서 앱 이름 → 오늘`);
+    assert.strictEqual(els.backBtn.hidden, true);
+  }
+
+  // 앱 안에서 넘어왔으면 history.back (브라우저 뒤로가기와 같은 곳)
+  nav.location.hash = '#closet';
+  nav.location.hash = '#me';
+  els.backBtn.dispatch('click');
+  assert.strictEqual(nav.backs, 1);
+  assert.strictEqual(nav.location.hash, '#closet');
+  els.backBtn.dispatch('click');
+  assert.strictEqual(nav.backs, 2);
+  assert.strictEqual(nav.location.hash, '#today');
+
+  // 그 탭 주소로 바로 열었으면 #today (앱 밖으로 나가지 않음)
+  for (const tab of ['#closet', '#me']) {
+    const direct = boot({ hash: tab });
+    assert.strictEqual(direct.els.backBtn.hidden, false);
+    direct.els.backBtn.dispatch('click');
+    assert.strictEqual(direct.nav.backs, 0);
+    assert.strictEqual(direct.nav.location.hash, '#today');
+  }
+  // 바로 연 옷장 → 나 → 브라우저 뒤로(옷장) → "← 뒤로" 는 다시 #today
+  const d = boot({ hash: '#closet' });
+  d.nav.location.hash = '#me';
+  d.nav.history.back();
+  assert.strictEqual(d.nav.location.hash, '#closet');
+  d.els.backBtn.dispatch('click');
+  assert.strictEqual(d.nav.location.hash, '#today');
+  assert.strictEqual(d.nav.backs, 1, '브라우저 뒤로 한 번만');
+});
+
+test('길 잃지 않기: 겹쳐 뜨는 창 — 다른 옷 시트 · 옷 추가 시트는 ✕ · 바깥 누르기, 설정 메뉴는 ✕ 로 닫힌다', () => {
+  const html = read('index.html');
+  for (const id of ['closeWearBtn', 'closeDialogBtn', 'settingsCloseBtn']) {
+    assert.match(html, new RegExp(`class="close-x" id="${id}" aria-label="닫기">✕</button>`), id);
+  }
+
+  const { els, run } = boot({ closet: true });
+  run(`applyWeather(${JSON.stringify(WEATHER)})`);
+
+  run('openWearSheet(todayKey())');
+  els.closeWearBtn.dispatch('click');
+  assert.strictEqual(els.wearDialog.open, false, '✕');
+  run('openWearSheet(todayKey())');
+  els.wearDialog.dispatch('click', els.wearSlots); // 시트 안을 누르면 그대로
+  assert.strictEqual(els.wearDialog.open, true);
+  els.wearDialog.dispatch('click', els.wearDialog); // 바깥(배경)
+  assert.strictEqual(els.wearDialog.open, false, '바깥 누르기');
+
+  els.itemDialog.showModal();
+  els.closeDialogBtn.dispatch('click');
+  assert.strictEqual(els.itemDialog.open, false, '옷 시트 ✕');
+  els.itemDialog.showModal();
+  els.itemDialog.dispatch('click', els.itemDialog);
+  assert.strictEqual(els.itemDialog.open, false, '옷 시트 바깥 누르기');
+
+  els.settingsBtn.dispatch('click');
+  assert.strictEqual(els.settingsMenu.hidden, false);
+  els.settingsCloseBtn.dispatch('click');
+  assert.strictEqual(els.settingsMenu.hidden, true, '설정 메뉴 ✕');
 });
