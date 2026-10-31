@@ -193,6 +193,31 @@
   </nav>
 
   <!-- 옷 추가 · 수정 시트 -->
+  <!-- 오늘 탭: "다른 옷 입었어요" — 실제로 입은 옷 고르기 (칸은 app.js 가 옷장으로 채운다) -->
+  <dialog class="sheet" id="wearDialog" aria-labelledby="wearTitle">
+    <form id="wearForm" novalidate>
+      <header class="sheet-head">
+        <h2 id="wearTitle">오늘 실제로 입은 옷</h2>
+        <button type="button" class="link-btn" id="closeWearBtn">닫기</button>
+      </header>
+      <p class="field-hint">추천과 다른 것만 바꿔 주세요. 옷장에 없는 옷은 두께만 골라도 돼요.</p>
+      <div id="wearSlots"></div>
+      <fieldset class="field">
+        <legend>입어 보니 <small>(나중에 물어봐도 돼요)</small></legend>
+        <div class="seg feel">
+          <label><input type="radio" name="feel" value="" checked><span>아직 몰라요</span></label>
+          <label><input type="radio" name="feel" value="cold"><span>🥶 추웠어요</span></label>
+          <label><input type="radio" name="feel" value="good"><span>😊 딱 좋았어요</span></label>
+          <label><input type="radio" name="feel" value="hot"><span>🥵 더웠어요</span></label>
+        </div>
+      </fieldset>
+      <p class="form-error" id="wearError" role="alert"></p>
+      <div class="sheet-actions">
+        <button type="submit" class="primary-btn">기록하기</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog class="sheet" id="itemDialog" aria-labelledby="itemDialogTitle">
     <form id="itemForm" novalidate>
       <header class="sheet-head">

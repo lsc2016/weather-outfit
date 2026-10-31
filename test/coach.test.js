@@ -308,14 +308,36 @@ test('일교차 한마디: 오르면 "벗으세요", 내리면 "챙기세요", �
   assert.strictEqual(look.tip, '니트와 청바지. 앞으로 18°까지 올라가요. 더우면 겉옷을 벗으세요');
 });
 
-test('입어 본 느낌: 더웠어요 +0.5° · 추웠어요 −0.5°, 한계 ±5°, 오래된 기록은 carried 로', () => {
-  assert.strictEqual(Coach.learnedOffset({ log: { '2026-10-28': 'hot', '2026-10-29': 'hot', '2026-10-30': 'cold' }, carried: 0 }), 0.5);
-  assert.strictEqual(Coach.learnedOffset({ log: { '2026-10-30': 'good', '2026-10-31': 'skip' }, carried: 1 }), 1);
-  assert.strictEqual(Coach.learnedOffset({ log: {}, carried: 9 }), 5);
-  assert.strictEqual(Coach.learnedOffset(undefined), 0);
-  const pruned = Coach.pruneFeedback({ log: { '2026-09-01': 'hot', '2026-10-30': 'cold' }, carried: 1 }, '2026-10-31', 30);
-  assert.deepStrictEqual(pruned, { log: { '2026-10-30': 'cold' }, carried: 1.5 });
-  assert.strictEqual(Coach.learnedOffset(pruned), 1); // 버려도 배운 값은 그대로
+test('입어 본 느낌: 추천대로 입고 더웠으면 +, 추웠으면 −, 딱 좋았으면 그대로, 얇게 입고 딱 좋았으면 +', () => {
+  const at14 = (feel, warmth = 9, learned = 0) => ({ feel, warmth, need: 9, learned });
+  // 14° 구간 가운데(14°)에서 합 9 → 반 단계 덜 입었어야 맞았다 → 맞는 온도 15.3° → +1.3°
+  assert.ok(Math.abs(Coach.impliedOffset(at14('hot'), WARMTH_TABLE) - 4 / 3) < 1e-9);
+  assert.ok(Coach.impliedOffset(at14('cold'), WARMTH_TABLE) < 0);
+  assert.strictEqual(Coach.impliedOffset(at14('good'), WARMTH_TABLE), 0);
+  assert.strictEqual(Coach.impliedOffset(at14('good', 9, 1.5), WARMTH_TABLE), 1.5, '그때 쓰던 보정이 맞았다');
+  assert.ok(Coach.impliedOffset(at14('good', 7.5), WARMTH_TABLE) > 3, '추천보다 얇게 입고 딱 좋음');
+  assert.strictEqual(Coach.impliedOffset({ feel: 'hot' }, WARMTH_TABLE), null, '숫자 없는 예전 답');
+  assert.strictEqual(Coach.impliedOffset(at14('skip'), WARMTH_TABLE), null);
+
+  // 답이 하나면 조금만 (prior), 쌓이면 평균 쪽으로. 0.5 단위로 반올림, 답 하나는 ±3° 까지만 믿음
+  const log = (entries) => ({ log: Object.fromEntries(entries.map((e, i) => [`2026-10-${10 + i}`, { ...e, at: i + 1 }])) });
+  assert.strictEqual(Coach.learnedOffset(log([at14('hot')]), WARMTH_TABLE), 0.5);
+  assert.strictEqual(Coach.learnedOffset(log([at14('hot'), at14('hot'), at14('hot')]), WARMTH_TABLE), 1);
+  assert.strictEqual(Coach.learnedOffset(log([at14('hot'), at14('cold')]), WARMTH_TABLE), 0);
+  const extreme = { feel: 'good', warmth: 2, need: 14, learned: 4 }; // 한겨울에 반팔로 딱 좋았다?
+  assert.strictEqual(Coach.learnedOffset(log([extreme]), WARMTH_TABLE), 1);
+  assert.strictEqual(Coach.learnedOffset(log(Array(10).fill(extreme)), WARMTH_TABLE), 2.5);
+  assert.strictEqual(Coach.learnedOffset(undefined, WARMTH_TABLE), 0);
+  // 초기화(resetAt) 전 답은 안 씀
+  assert.strictEqual(Coach.learnedOffset({ ...log([at14('hot'), at14('hot')]), resetAt: 2 }, WARMTH_TABLE), 0);
+});
+
+test('따뜻한 정도 합 → 맞는 온도: 구간 가운데 온도 사이를 잇는다', () => {
+  assert.strictEqual(Coach.tempForWarmth(WARMTH_TABLE, 9), 14);
+  assert.strictEqual(Coach.tempForWarmth(WARMTH_TABLE, 12), 6.5);
+  assert.strictEqual(Coach.tempForWarmth(WARMTH_TABLE, 0), 30);
+  assert.strictEqual(Coach.tempForWarmth(WARMTH_TABLE, 20), 2);
+  assert.strictEqual(Coach.tempForWarmth(WARMTH_TABLE, 4.5), 23);
 });
 
 test('"어땠어요?" 묻는 날: 답 없는 가장 최근 입은 날, 오늘 것은 저녁부터, 사흘 지나면 안 물음', () => {
@@ -331,8 +353,8 @@ test('따뜻한 정도 고치기 제안: 같은 옷으로 2번 더 더우면 −
   const knit = { id: 'k', type: 'top', name: '니트', warmth: 4 };
   const pants = { id: 'p', type: 'bottom', name: '바지', warmth: 3 };
   const scarf = { id: 's', type: 'acc', name: '목도리', warmth: 4 };
-  const worn = { '2026-10-27': ['k', 'p', 's'], '2026-10-28': ['k', 's'], '2026-10-29': ['p'] };
-  const feedback = { log: { '2026-10-27': 'hot', '2026-10-28': 'hot', '2026-10-29': 'cold' } };
+  const worn = { '2026-10-27': { ids: ['k', 'p', 's'] }, '2026-10-28': ['k', 's'], '2026-10-29': { ids: ['p'] } }; // 예전 배열 기록도
+  const feedback = { log: { '2026-10-27': { feel: 'hot' }, '2026-10-28': 'hot', '2026-10-29': { feel: 'cold' } } };
   const got = Coach.warmthSuggestions({ items: [knit, pants, scarf], worn, feedback });
   assert.deepStrictEqual(got.map((s) => [s.item.id, s.from, s.to]), [['k', 4, 3]]); // 바지는 1:1, 소품은 안 봄
   assert.deepStrictEqual(Coach.warmthSuggestions({ items: [knit], worn, feedback, since: { k: '2026-10-27' } }), []);

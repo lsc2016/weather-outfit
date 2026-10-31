@@ -200,10 +200,14 @@
     return Math.round((utc(b) - utc(a)) / 86400000);
   }
 
-  // 입은 기록 { 'YYYY-MM-DD': [옷 id] } → { 옷 id: 마지막으로 입은 지 며칠 } (오늘 = 0, 앞날 기록은 무시)
+  // 입은 기록 한 날의 옷 id 목록 (예전 기록은 배열, 지금은 { ids, … })
+  const wornIds = (entry) => (Array.isArray(entry) ? entry : entry?.ids || []);
+
+  // 입은 기록 { 'YYYY-MM-DD': { ids } } → { 옷 id: 마지막으로 입은 지 며칠 } (오늘 = 0, 앞날 기록은 무시)
   function wornDays(log, today) {
     const out = {};
-    for (const [date, ids] of Object.entries(log || {})) {
+    for (const [date, entry] of Object.entries(log || {})) {
+      const ids = wornIds(entry);
       const days = daysBetween(date, today);
       if (!(days >= 0)) continue;
       for (const id of ids) if (!(out[id] <= days)) out[id] = days;
@@ -219,37 +223,77 @@
   /* ===== 입어 본 느낌 (피드백) ===== */
 
   /*
-   * 피드백 = { log: { 'YYYY-MM-DD': 'cold' | 'good' | 'hot' | 'skip' }, carried: 숫자 }
-   *  - log 의 날짜는 입은 기록(worn)의 날짜. 그날 입은 옷은 worn[날짜] 에서 찾는다.
-   *  - 내 체감 보정(learnedOffset)은 carried + log 의 걸음 합. 오래된 log 를 버릴 때 그 걸음은 carried 로 옮긴다.
-   *  - "더웠어요" → +, "추웠어요" → − (추천 온도를 올리면 더 얇은 옷이 나온다 — 체감 보정 3단계와 같은 방향)
+   * 입은 기록 한 날 = { ids: [옷장 옷 id], title, warmth, need, learned }
+   *  - warmth : 실제로 입은 상의 + 하의 + 겉옷 따뜻한 정도 합 (옷장에 없는 옷은 고른 두께)
+   *  - need   : 그때 추천 온도 구간이 바란 합 (warmthNeed)
+   *  - learned: 그때 쓰던 "입어 본 느낌" 보정
+   * 피드백 = { log: { 입은 날: { feel, warmth, need, learned, at } }, resetAt }
+   *  - feel 은 'cold' | 'good' | 'hot' | 'skip'. 답할 때 입은 기록의 숫자를 함께 옮겨 둔다.
+   *
+   * ■ 배우는 방법
+   *  답 하나 → "이 사람에게 맞는 보정은 몇 °였나"(impliedOffset):
+   *   1. 입은 합에 느낌을 더한다: 더웠으면 feelWarmth 만큼 덜, 추웠으면 더 입었어야 맞았다.
+   *   2. 그 합이 딱 맞는 온도를 표에서 거꾸로 찾는다(tempForWarmth, 구간 가운데 온도 사이를 잇는다).
+   *   3. 그때 추천 온도 구간의 합(need)이 맞는 온도와의 차이만큼 그때 보정을 옮긴다.
+   *  → 추천대로 입고 딱 좋았으면 그때 보정 그대로, 더 얇게 입고 딱 좋았으면 + 쪽(더 얇게 추천).
+   *  답 하나는 ±sampleMax 까지만 믿고, 최근 samples 개의 평균을 쓰되 prior 만큼 0 쪽으로 당긴다
+   *  (답이 하나뿐이거나 유난히 다르게 입은 날 하루로 크게 흔들리지 않게).
    */
   const FEEDBACK = {
-    step: 0.5,          // 피드백 한 번에 움직이는 체감 보정(°)
-    max: 5,             // 체감 보정 한계 (±)
+    feelWarmth: 0.5,    // 더웠어요 / 추웠어요 하나가 "맞았을 합"을 옮기는 양
+    samples: 10,        // 보정을 배울 때 보는 최근 답 수
+    sampleMax: 3,       // 답 하나가 말해 주는 보정의 한계 (±°)
+    prior: 2,           // 0 쪽으로 당기는 무게 (답 수에 더해 나눈다)
+    max: 5,             // 보정 한계 (±°)
     askDays: 2,         // 입은 날부터 며칠 안에 "어땠어요?" 를 물을지 (그 뒤엔 안 물음)
     askTodayFrom: 17,   // 오늘 입은 옷은 이 시각부터 물음
     suggestAfter: 2,    // 한 옷에 같은 쪽 피드백이 이만큼 더 많으면 따뜻한 정도 고치기 제안
   };
-  const FEEL_STEP = { hot: 1, cold: -1 };
+  const FEEL_WARMTH = { hot: -1, cold: 1, good: 0 };
+  const feelOf = (entry) => (typeof entry === 'string' ? entry : entry?.feel);
 
-  const clampOffset = (v) => Math.max(-FEEDBACK.max, Math.min(FEEDBACK.max, v));
-
-  // 피드백으로 배운 체감 보정(°)
-  function learnedOffset(feedback) {
-    const sum = Object.values(feedback?.log || {}).reduce((acc, feel) => acc + (FEEL_STEP[feel] ?? 0) * FEEDBACK.step, 0);
-    return clampOffset((feedback?.carried || 0) + sum);
+  // WARMTH_TABLE 구간마다 (가운데 온도, 바라는 합) — 높은 온도 순
+  function warmthPoints(table) {
+    return table.map((row, i) => {
+      let center;
+      if (i === 0) center = row.min + 2;
+      else if (row.min === -Infinity) center = table[i - 1].min - 3;
+      else center = (row.min + table[i - 1].min - 1) / 2;
+      return { temp: center, need: warmthNeed(row) };
+    });
   }
 
-  // keepDays 보다 오래된 log 는 버리고 그 걸음은 carried 로 옮긴다
-  function pruneFeedback(feedback, today, keepDays) {
-    const log = {};
-    let carried = feedback?.carried || 0;
-    for (const [date, feel] of Object.entries(feedback?.log || {})) {
-      if (daysBetween(date, today) > keepDays) carried += (FEEL_STEP[feel] ?? 0) * FEEDBACK.step;
-      else log[date] = feel;
+  // 따뜻한 정도 합 → 그 합이 딱 맞는 온도 (구간 가운데 온도 사이를 직선으로, 끝은 끝값)
+  function tempForWarmth(table, warmth) {
+    const pts = warmthPoints(table);
+    if (warmth <= pts[0].need) return pts[0].temp;
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      if (warmth <= b.need) return a.temp + (b.temp - a.temp) * (warmth - a.need) / (b.need - a.need);
     }
-    return { log, carried: clampOffset(carried) };
+    return pts[pts.length - 1].temp;
+  }
+
+  // 답 하나가 말해 주는 보정(°). 숫자가 없는 답(예전 기록 · 건너뜀)은 null
+  function impliedOffset(entry, table) {
+    const feel = feelOf(entry);
+    if (!(feel in FEEL_WARMTH) || typeof entry.warmth !== 'number' || typeof entry.need !== 'number') return null;
+    const fits = entry.warmth + FEEL_WARMTH[feel] * FEEDBACK.feelWarmth;
+    return (entry.learned || 0) + tempForWarmth(table, fits) - tempForWarmth(table, entry.need);
+  }
+
+  // 피드백으로 배운 보정(°, 0.5 단위)
+  function learnedOffset(feedback, table) {
+    const offsets = Object.entries(feedback?.log || {})
+      .filter(([, entry]) => !(feedback.resetAt && (entry?.at || 0) <= feedback.resetAt))
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([, entry]) => impliedOffset(entry, table))
+      .filter((v) => v !== null)
+      .map((v) => Math.max(-FEEDBACK.sampleMax, Math.min(FEEDBACK.sampleMax, v)))
+      .slice(-FEEDBACK.samples);
+    const mean = offsets.reduce((a, b) => a + b, 0) / (offsets.length + FEEDBACK.prior);
+    const clamped = Math.max(-FEEDBACK.max, Math.min(FEEDBACK.max, mean));
+    return Math.round(clamped * 2) / 2 || 0;
   }
 
   // "어땠어요?" 를 물을 날짜 (가장 최근, 아직 답 없는 입은 날). 없으면 null
@@ -274,8 +318,9 @@
     for (const item of items) {
       if (item.type === 'acc') continue;
       let hot = 0, cold = 0;
-      for (const [date, feel] of Object.entries(feedback?.log || {})) {
-        if (!(worn?.[date] || []).includes(item.id)) continue;
+      for (const [date, entry] of Object.entries(feedback?.log || {})) {
+        const feel = feelOf(entry);
+        if (!wornIds(worn?.[date]).includes(item.id)) continue;
         if (since[item.id] && date <= since[item.id]) continue;
         if (feel === 'hot') hot++;
         if (feel === 'cold') cold++;
@@ -437,7 +482,7 @@
     COACH_RULES, COACH_ADDONS, COLOR_FAMILIES, SLOT_LABEL, PER_PAGE, SCORE, WARMTH_SLACK, WARMTH_MAX_GAP,
     hexToHsl, colorFamily, isVivid, colorScore, warmthNeed, warmthScore, seededShuffle,
     daysBetween, wornDays, wornScore, SWING, swingScore, swingTip, addSwing,
-    FEEDBACK, learnedOffset, pruneFeedback, feedbackDate, warmthSuggestions,
+    wornIds, FEEDBACK, warmthPoints, tempForWarmth, impliedOffset, learnedOffset, feedbackDate, warmthSuggestions,
     coachTip, findRow, defaultLooks, pickFromCloset, mergeItems, addRain, lookTitle,
   };
 

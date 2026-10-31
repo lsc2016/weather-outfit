@@ -11,6 +11,7 @@
   --accent-soft: #e3ecfc;
   --on-accent: #ffffff;
   --danger: #d23b36;
+  --stamp: #c8362f;        /* "오늘 입음" 도장 */
   --dot-ring: rgba(0, 0, 0, .14);
   --zero-bg: #fde7e5;
   --rain: #2f6fe4;
@@ -68,6 +69,7 @@
     --accent-soft: #23304a;
     --on-accent: #0f1522;
     --danger: #ff7b74;
+    --stamp: #ff8a7a;
     --dot-ring: rgba(255, 255, 255, .22);
     --zero-bg: #3a2120;
     --rain: #7aa5ff;
@@ -357,8 +359,74 @@ body {
 .feedback-btns .chip-btn { background: var(--surface); font-size: 13px; padding: 6px 12px; }
 .feedback-btns .chip-btn.feedback-skip { position: absolute; top: 6px; right: 6px; padding: 2px 8px; background: none; color: var(--text-3); }
 .look-worn { font-size: 12px; color: var(--text-3); }
-.chip-btn.worn-btn { align-self: flex-start; font-size: 13px; padding: 6px 12px; }
-.chip-btn.worn-btn.on { color: var(--text-2); background: var(--line); }
+
+/* 입은 기록: "이대로 입었어요" 도장 */
+.look-card { position: relative; }
+.wear-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding-top: 4px; }
+.wear-note { flex-basis: 100%; font-size: 12px; color: var(--text-3); }
+.wear-done { font-size: 14px; font-weight: 600; color: var(--stamp); }
+.stamp-btn {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 18px;
+  cursor: pointer;
+}
+.stamp-btn:active { transform: scale(.97); }
+.stamp {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--stamp);
+  border: 3px double var(--stamp);
+  border-radius: 50%;
+  transform: rotate(-14deg);
+  opacity: .85;
+  pointer-events: none;
+}
+.stamp.pop { animation: stampPop .32s cubic-bezier(.2, .9, .3, 1.3); }
+@keyframes stampPop {
+  from { transform: rotate(-14deg) scale(1.8); opacity: 0; }
+  to { transform: rotate(-14deg) scale(1); opacity: .85; }
+}
+@media (prefers-reduced-motion: reduce) { .stamp.pop { animation: none; } }
+
+/* "다른 옷 입었어요" 시트: 옷 고르기 */
+.pick { display: flex; flex-wrap: wrap; gap: 6px; }
+.pick label { position: relative; }
+.pick input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.pick span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 12px;
+  font-size: 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  cursor: pointer;
+}
+.pick .dot { width: 12px; height: 12px; }
+.pick input:checked + span { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.pick input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.seg.thick { margin-top: 8px; }
+.seg.thick[hidden] { display: none; }
+.seg.thick span, .seg.feel span { font-size: 13px; padding: 8px 2px; }
+.seg.thick span { font-size: 12px; line-height: 1.25; height: 100%; display: grid; place-items: center; word-break: keep-all; }
+.seg.feel { flex-wrap: wrap; }
+.seg.feel label { flex: 1 1 40%; }
 
 /* 옷장 옷 색 동그라미 (흰 옷도 보이게 테두리) */
 .dot {

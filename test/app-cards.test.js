@@ -48,8 +48,11 @@ class El {
     for (const fn of this.listeners[type] || []) fn(ev);
   }
   closest(sel) {
+    const data = /^\[data-([a-z]+)\]$/.exec(sel); // [data-wear] 꼴
     const cls = sel.replace(/^\./, '');
-    for (let el = this; el; el = el.parent) if (el.classList.contains(cls)) return el;
+    for (let el = this; el; el = el.parent) {
+      if (data ? el.dataset[data[1]] !== undefined : el.classList.contains(cls)) return el;
+    }
     return null;
   }
   querySelectorAll(sel) {
@@ -242,7 +245,7 @@ test('옷장에 맞는 하의가 없으면 기본 추천으로 가고 "없음" �
   assert.match(els.closetMissing.textContent, /없음/);
 });
 
-test('옷장 추천엔 "오늘 이거 입었어요" 버튼: 누르면 오늘 기록, 다시 누르면 취소, 기본 추천엔 버튼 없음', () => {
+test('"이대로 입었어요" 도장: 옷장 추천 · 기본 룩 모두, 누르면 도장 + 오늘 기록, 취소하면 지움', () => {
   let n = 0;
   const c = (type, name, color) => ({ id: `w${n++}`, type, name, color, warmth: 3 });
   const wardrobe = [
@@ -253,31 +256,46 @@ test('옷장 추천엔 "오늘 이거 입었어요" 버튼: 누르면 오늘 기
   const { els, storage, backupParts, run } = boot({ wardrobe });
   run(`applyWeather(${JSON.stringify(WEATHER)})`);
   const today = run('todayKey()');
-  const btn = () => els.lookDetail.querySelectorAll('.worn-btn')[0];
+  const act = (name) => els.lookDetail.querySelectorAll('.wear-row')[0].children.find((b) => b.dataset?.wear === name);
 
-  assert.ok(btn(), '버튼이 있다');
-  assert.strictEqual(btn().getAttribute('aria-pressed'), 'false');
+  assert.ok(act('stamp'), '도장 버튼');
+  assert.ok(act('other'), '다른 옷 버튼');
   const title = els.lookDetail.querySelectorAll('.look-title')[0].textContent;
 
-  els.lookDetail.dispatch('click', btn());
-  const saved = JSON.parse(storage['outfit.worn.v1']);
-  assert.deepStrictEqual(Object.keys(saved), [today]);
-  assert.strictEqual(saved[today].length, 3, '상의 · 하의 · 겉옷');
-  assert.strictEqual(btn().getAttribute('aria-pressed'), 'true');
-  assert.match(btn().textContent, /취소/);
+  els.lookDetail.dispatch('click', act('stamp'));
+  const saved = JSON.parse(storage['outfit.worn.v1'])[today];
+  assert.strictEqual(saved.ids.length, 3, '상의 · 하의 · 겉옷');
+  assert.strictEqual(saved.title, title);
+  assert.deepStrictEqual([saved.warmth, saved.need, saved.learned], [9, 9, 0]);
+  assert.strictEqual(els.lookDetail.querySelectorAll('.stamp').length, 1);
+  assert.match(els.lookDetail.textContent, /오늘 이대로 입었어요/);
   // 오늘 기록으로는 순서가 안 바뀐다
   assert.strictEqual(els.lookDetail.querySelectorAll('.look-title')[0].textContent, title);
-  // 백업 파일에도 들어간다
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(backupParts.worn.get())), saved);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(backupParts.worn.get()))[today].title, title);
 
-  els.lookDetail.dispatch('click', btn());
+  // 다른 추천안으로 넘기면 도장 없음 + "이걸로 바꾸기"
+  els.nextLookBtn.dispatch('click');
+  assert.strictEqual(els.lookDetail.querySelectorAll('.stamp').length, 0);
+  assert.match(act('stamp').textContent, /이걸로 바꾸기/);
+  els.prevLookBtn.dispatch('click');
+
+  els.lookDetail.dispatch('click', act('undo'));
   assert.deepStrictEqual(JSON.parse(storage['outfit.worn.v1']), {});
-  assert.strictEqual(btn().getAttribute('aria-pressed'), 'false');
+  assert.ok(act('stamp'));
 
-  // 옷장이 비면 기본 추천 → 버튼 없음
+  // 옷장이 비어도(기본 룩) 도장을 찍을 수 있고, 따뜻한 정도 합은 구간이 바란 합으로
   const plain = boot();
   plain.run(`applyWeather(${JSON.stringify(WEATHER)})`);
-  assert.strictEqual(plain.els.lookDetail.querySelectorAll('.worn-btn').length, 0);
+  const stampBtn = plain.els.lookDetail.querySelectorAll('.stamp-btn')[0];
+  plain.els.lookDetail.dispatch('click', stampBtn);
+  const entry = JSON.parse(plain.storage['outfit.worn.v1'])[plain.run('todayKey()')];
+  assert.deepStrictEqual([entry.ids, entry.warmth, entry.need], [[], 9, 9]);
+  assert.strictEqual(plain.els.lookDetail.querySelectorAll('.stamp').length, 1);
+
+  // 슬라이더로 다른 온도를 볼 땐 기록 버튼 대신 안내
+  plain.els.slider.dispatch('input', { target: { value: '5' } });
+  assert.strictEqual(plain.els.lookDetail.querySelectorAll('.stamp-btn').length, 0);
+  assert.match(plain.els.lookDetail.textContent, /지금 날씨로 돌아가면/);
 });
 
 test('어제 입은 상의는 뒤로 가고, 그 옷이 나오는 카드엔 "어제 입음" 안내', () => {
@@ -326,7 +344,7 @@ const feedbackCloset = () => [
 test('어제 입은 옷 "어땠어요?" → 더웠어요를 누르면 추천 온도가 0.5° 오르고 설정 메뉴에도 보인다, 초기화하면 0', () => {
   const { els, storage, run } = boot({
     wardrobe: feedbackCloset(),
-    storage: { 'outfit.worn.v1': JSON.stringify({ [daysAgo(1)]: ['a', 'p', 'j'] }) },
+    storage: { 'outfit.worn.v1': JSON.stringify({ [daysAgo(1)]: { ids: ['a', 'p', 'j'], title: '흰 셔츠 + 검정 슬랙스', warmth: 9, need: 9, learned: 0 } }) },
   });
   run(`applyWeather(${JSON.stringify(WEATHER)})`);
   assert.strictEqual(els.feedbackBox.hidden, false);
@@ -334,9 +352,10 @@ test('어제 입은 옷 "어땠어요?" → 더웠어요를 누르면 추천 온
 
   const hot = els.feedbackBox.querySelectorAll('.chip-btn').find((b) => b.dataset.feel === 'hot');
   els.feedbackBox.dispatch('click', hot);
-  assert.deepStrictEqual(JSON.parse(storage['outfit.feedback.v1']).log, { [daysAgo(1)]: 'hot' });
+  const answer = JSON.parse(storage['outfit.feedback.v1']).log[daysAgo(1)];
+  assert.deepStrictEqual([answer.feel, answer.warmth, answer.need, answer.learned], ['hot', 9, 9, 0]);
   assert.match(els.basis.textContent, /입어 본 느낌 \+0\.5° 14\.5°/);
-  assert.match(els.feedbackBox.textContent, /0\.5° 시원하게/);
+  assert.match(els.feedbackBox.textContent, /\+0\.5°가 됐어요 — 앞으로 조금 더 시원하게/);
   assert.strictEqual(els.learnedValue.textContent, '+0.5°');
   assert.strictEqual(els.learnedReset.hidden, false);
 
@@ -348,6 +367,46 @@ test('어제 입은 옷 "어땠어요?" → 더웠어요를 누르면 추천 온
   assert.strictEqual(els.learnedValue.textContent, '±0°');
   assert.doesNotMatch(els.basis.textContent, /입어 본 느낌/);
   assert.strictEqual(els.feedbackBox.hidden, true);
+});
+
+test('예전 입은 기록([옷 id])도 열리고 "어땠어요?"를 묻는다 (숫자가 없어 보정은 그대로)', () => {
+  const { els, run } = boot({
+    wardrobe: feedbackCloset(),
+    storage: { 'outfit.worn.v1': JSON.stringify({ [daysAgo(1)]: ['a', 'p'] }) },
+  });
+  run(`applyWeather(${JSON.stringify(WEATHER)})`);
+  assert.match(els.feedbackBox.textContent, /어제 입은 흰 셔츠 \+ 검정 슬랙스, 어땠어요\?/);
+  els.feedbackBox.dispatch('click', els.feedbackBox.querySelectorAll('.chip-btn').find((b) => b.dataset.feel === 'hot'));
+  assert.strictEqual(els.learnedValue.textContent, '±0°');
+});
+
+test('"다른 옷 입었어요": 추천보다 얇게 입고 딱 좋았으면 보정이 + 쪽으로, 옷장에 없는 옷은 두께로', () => {
+  const wardrobe = [...feedbackCloset(), { id: 't', type: 'top', name: '반팔 티', color: '#ffffff', warmth: 1 }];
+  const { els, storage, run } = boot({ wardrobe });
+  run(`applyWeather(${JSON.stringify(WEATHER)})`);
+  const today = run('todayKey()');
+
+  // 시트에 미리 고를 값 = 지금 추천안 (14° 구간: 상의 · 하의 · 겉옷 모두 3)
+  const preset = JSON.parse(JSON.stringify(run(`wearPreset(${JSON.stringify(today)})`)));
+  assert.deepStrictEqual(preset, { top: 'a', bottom: 'p', outer: 'j' });
+
+  // 반팔 티 + 검정 슬랙스, 겉옷 안 입음 → 합 4 (추천은 9), 딱 좋았어요
+  run(`saveWear(${JSON.stringify(today)}, { slots: { top: 't', bottom: 'p', outer: 'none' }, feel: 'good' })`);
+  const entry = JSON.parse(storage['outfit.worn.v1'])[today];
+  assert.deepStrictEqual([entry.title, entry.warmth, entry.need, entry.other], ['반팔 티 + 검정 슬랙스', 4, 9, true]);
+  assert.strictEqual(JSON.parse(storage['outfit.feedback.v1']).log[today].feel, 'good');
+  assert.ok(run('learned()') > 0, `${run('learned()')}`);
+  assert.match(els.feedbackBox.textContent, /시원하게/);
+  // 오늘 기록이 "다른 옷"이면 카드에 안내 + 고치기
+  assert.match(els.lookDetail.textContent, /오늘 기록: 반팔 티 \+ 검정 슬랙스/);
+  assert.match(els.lookDetail.textContent, /입은 옷 고치기/);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(run(`wearPreset(${JSON.stringify(today)})`))), { top: 't', bottom: 'p', outer: 'none' });
+
+  // 옷장에 없는 옷: 두께 4 상의 + 두께 4 하의 + 두께 5 겉옷, 느낌은 나중에
+  run(`saveWear(${JSON.stringify(today)}, { slots: { top: 'w4', bottom: 'w4', outer: 'w5' }, feel: '' })`);
+  const thick = JSON.parse(storage['outfit.worn.v1'])[today];
+  assert.deepStrictEqual([thick.title, thick.warmth, thick.ids], ['두꺼운 상의 + 두꺼운 하의', 13, []]);
+  assert.strictEqual(JSON.parse(storage['outfit.feedback.v1']).log[today], undefined, '옷을 바꾸면 오늘 답은 지움');
 });
 
 test('같은 상의로 두 번 더웠으면 "따뜻한 정도 3 → 2로 낮출까요?" → 낮추기를 누르면 옷이 고쳐지고 더 묻지 않는다', () => {

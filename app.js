@@ -176,10 +176,12 @@ const DEFAULT_PLACE = { name: '서울', lat: 37.5665, lon: 126.978 };
 
 const CACHE_KEY = 'outfit.weather.v1';
 const SENSE_KEY = 'outfit.sensitivity';
-const WORN_KEY = 'outfit.worn.v1'; // 입은 기록 { 'YYYY-MM-DD': [상의 · 하의 · 겉옷 id] } — 하루 한 벌
+const WORN_KEY = 'outfit.worn.v1'; // 입은 기록 { 'YYYY-MM-DD': { ids, title, warmth, need, learned, other?, slots? } } — 하루 한 벌
 const WORN_KEEP_DAYS = 30;          // 이보다 오래된 기록은 버린다
 const WORN_NOTE_DAYS = 7;           // 카드에 "어제 입음" 같은 안내를 붙이는 기간
-const FEEDBACK_KEY = 'outfit.feedback.v1'; // 입어 본 느낌 { log: { 날짜: 'cold'|'good'|'hot'|'skip' }, carried, since: { 옷 id: 날짜 } }
+const FEEDBACK_KEY = 'outfit.feedback.v1'; // 입어 본 느낌 { log: { 입은 날: { feel, warmth, need, learned, at } }, since: { 옷 id: 날짜 }, resetAt }
+const FEEDBACK_KEEP = 60;                   // 이보다 많으면 오래된 답부터 버린다 (배우는 데는 최근 것만 씀)
+const THICKNESS = ['', '아주 얇은', '얇은', '보통', '두꺼운', '아주 두꺼운']; // 옷장에 없는 옷의 두께 1~5
 const FEELS = {
   cold: { icon: '🥶', label: '추웠어요' },
   good: { icon: '😊', label: '딱 좋았어요' },
@@ -216,8 +218,10 @@ const state = {
   looks: [],          // 지금 보여주는 추천안들
   looksSig: '',       // 그 추천안들의 이름 (바뀌면 첫 카드부터 선택)
   worn: {},           // 입은 기록 (WORN_KEY)
-  feedback: { log: {}, carried: 0, since: {} }, // 입어 본 느낌 (FEEDBACK_KEY)
+  feedback: { log: {}, since: {} }, // 입어 본 느낌 (FEEDBACK_KEY)
   feedbackNote: '',   // 피드백에 답한 뒤 잠깐 보여주는 말
+  now: { target: 20, need: 0, learned: 0 }, // 지금 추천 온도 · 그 구간이 바라는 따뜻한 정도 합 · 쓰고 있는 배운 보정 (기록할 때 함께 남김)
+  justStamped: false, // 방금 도장을 찍었는지 (도장 애니메이션)
 };
 
 const $ = (id) => document.getElementById(id);
@@ -232,22 +236,41 @@ function storageSet(key, value) {
 
 /* ===== 입은 기록 ===== */
 
-// 오늘 날짜 'YYYY-MM-DD' (기기 시간대)
+const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
+const WEAR_SLOTS = ['top', 'bottom', 'outer'];
+
+// 날짜 → 'YYYY-MM-DD' (기기 시간대)
+function dateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// 오늘 날짜 'YYYY-MM-DD'
 function todayKey() {
   return dateKey(new Date());
 }
 
-// 들어온 값을 기록 모양으로 다듬고 오래된 날은 버린다
+const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+
+// 들어온 값을 기록 모양으로 다듬고 오래된 날은 버린다 (예전 기록 [옷 id …] 도 받는다)
 function normalizeWorn(raw) {
   const out = {};
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
   const today = todayKey();
-  for (const [date, ids] of Object.entries(raw)) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Array.isArray(ids)) continue;
+  for (const [date, value] of Object.entries(raw)) {
+    if (!DATE_KEY.test(date)) continue;
     const age = Coach.daysBetween(date, today);
     if (!(age >= 0 && age <= WORN_KEEP_DAYS)) continue;
-    const clean = ids.filter((id) => typeof id === 'string' && id);
-    if (clean.length) out[date] = clean;
+    const entry = Array.isArray(value) ? { ids: value } : value;
+    if (!entry || typeof entry !== 'object') continue;
+    const clean = { ids: (Array.isArray(entry.ids) ? entry.ids : []).filter((id) => typeof id === 'string' && id) };
+    if (typeof entry.title === 'string' && entry.title) clean.title = entry.title.slice(0, 80);
+    for (const k of ['warmth', 'need', 'learned']) if (finite(entry[k])) clean[k] = entry[k];
+    if (entry.other) clean.other = true;
+    if (entry.slots && typeof entry.slots === 'object') {
+      clean.slots = {};
+      for (const slot of WEAR_SLOTS) if (typeof entry.slots[slot] === 'string') clean.slots[slot] = entry.slots[slot];
+    }
+    if (clean.ids.length || clean.title) out[date] = clean;
   }
   return out;
 }
@@ -261,42 +284,221 @@ function setWorn(next) {
   storageSet(WORN_KEY, JSON.stringify(state.worn));
 }
 
-const lookIds = (look) => [look.top, look.bottom, look.outer].map((it) => it?.id).filter(Boolean);
+const lookIds = (look) => WEAR_SLOTS.map((slot) => look[slot]?.id).filter(Boolean);
 
-// 이 추천안을 오늘 입은 옷으로 기록했는지 (옷장 추천만)
-function wornToday(look) {
-  const today = state.worn[todayKey()] || [];
-  const ids = lookIds(look);
-  return ids.length > 0 && ids.every((id) => today.includes(id));
+// 입은 기록은 지금 날씨로 볼 때만 (슬라이더로 다른 온도를 볼 땐 그 온도에 입은 게 아니라서)
+const canRecord = () => !state.custom;
+
+// 이 추천안에 오늘 도장을 찍었는지
+function isStamped(look) {
+  const entry = state.worn[todayKey()];
+  return Boolean(entry) && !entry.other && entry.title === Coach.lookTitle(look);
 }
 
-// "오늘 이거 입었어요" — 누르면 오늘 기록을 이 추천안으로 바꾸고, 다시 누르면 지운다
-function toggleWorn(look) {
-  const next = { ...state.worn };
-  if (wornToday(look)) delete next[todayKey()];
-  else next[todayKey()] = lookIds(look);
-  setWorn(next);
-  renderLookSlide(state.looks);
+// 추천안 → 입은 기록 한 날 (기본 룩은 내 옷이 아니라 따뜻한 정도 합을 구간이 바란 합으로 본다)
+function lookEntry(look) {
+  const ids = lookIds(look);
+  const warmths = WEAR_SLOTS.filter((slot) => look[slot]).map((slot) => Wardrobe.get(look[slot].id)?.warmth);
+  const known = ids.length && warmths.every(finite);
+  return {
+    ids,
+    title: Coach.lookTitle(look),
+    warmth: known ? warmths.reduce((a, b) => a + b, 0) : state.now.need,
+    need: state.now.need,
+    learned: state.now.learned,
+  };
+}
+
+// 오늘 기록을 바꾸면 오늘 답한 느낌은 지운다 (바뀐 옷으로 다시 묻게)
+function recordToday(entry) {
+  const today = todayKey();
+  const worn = { ...state.worn };
+  if (entry) worn[today] = entry;
+  else delete worn[today];
+  setWorn(worn);
+  if (state.feedback.log[today]) {
+    const log = { ...state.feedback.log };
+    delete log[today];
+    setFeedback({ ...state.feedback, log });
+  }
+}
+
+// "이대로 입었어요" 도장 · 취소
+function stampLook(look) {
+  recordToday(lookEntry(look));
+  state.justStamped = true;
+  renderOutfit();
+  state.justStamped = false;
+}
+function unstamp() {
+  recordToday(null);
+  renderOutfit();
+}
+
+/**
+ * "다른 옷 입었어요" 시트에서 고른 것 저장
+ *  choice = { slots: { top: 옷 id | 'w1'~'w5'(옷장에 없는 옷의 두께), bottom: …, outer: … | 'none' }, feel: '' | 'cold' | 'good' | 'hot' }
+ *  오늘이면 지금 추천 온도의 숫자, 지난날이면 그날 기록의 숫자를 함께 남긴다.
+ */
+function saveWear(date, choice) {
+  const base = date === todayKey() ? state.now : state.worn[date] || {};
+  const ids = [];
+  const names = [];
+  let warmth = 0;
+  for (const slot of WEAR_SLOTS) {
+    const v = choice.slots[slot];
+    if (!v || v === 'none') continue;
+    const level = /^w([1-5])$/.exec(v);
+    const item = level ? null : Wardrobe.get(v);
+    if (!level && !item) continue;
+    warmth += level ? Number(level[1]) : item.warmth;
+    if (item) ids.push(item.id);
+    if (slot !== 'outer') names.push(item ? item.name : `${THICKNESS[level[1]]} ${Coach.SLOT_LABEL[slot]}`);
+  }
+  const entry = { ids, title: names.join(' + '), warmth, other: true, slots: { ...choice.slots } };
+  if (finite(base.need)) entry.need = base.need;
+  if (finite(base.learned)) entry.learned = base.learned;
+  setWorn({ ...state.worn, [date]: entry });
+
+  const log = { ...state.feedback.log };
+  delete log[date];
+  setFeedback({ ...state.feedback, log });
+  if (choice.feel) answerFeel(date, choice.feel);
+  else renderOutfit();
+}
+
+// 시트에 미리 고를 값: 그날 "다른 옷" 기록 → 지금 추천안(오늘) / 그날 입은 옷장 옷
+function wearPreset(date) {
+  const entry = state.worn[date];
+  if (entry?.slots) return { ...entry.slots };
+  const out = {};
+  const look = date === todayKey() && !entry ? state.looks[state.selected] : null;
+  if (look) {
+    const row = Coach.findRow(WARMTH_TABLE, state.now.target);
+    for (const slot of WEAR_SLOTS) {
+      if (!look[slot]) out[slot] = 'none';
+      else if (look[slot].id) out[slot] = look[slot].id;
+      else if (row[slot]) out[slot] = `w${Math.round((row[slot][0] + row[slot][1]) / 2)}`;
+    }
+  } else {
+    for (const id of entry?.ids || []) {
+      const it = Wardrobe.get(id);
+      if (it && WEAR_SLOTS.includes(it.type)) out[it.type] = id;
+    }
+    if (!out.outer && entry) out.outer = 'none';
+  }
+  return out;
+}
+
+/* ===== "다른 옷 입었어요" 시트 ===== */
+
+let wearDate = null; // 시트에서 기록하는 날
+
+function radio(name, value, text, checked, dot) {
+  const label = document.createElement('label');
+  const input = document.createElement('input');
+  input.type = 'radio';
+  input.name = name;
+  input.value = value;
+  input.checked = checked;
+  const span = document.createElement('span');
+  if (dot) {
+    const d = document.createElement('i');
+    d.className = 'dot';
+    d.style.background = dot;
+    span.append(d);
+  }
+  span.append(text);
+  label.append(input, span);
+  return label;
+}
+
+function openWearSheet(date) {
+  wearDate = date;
+  const preset = wearPreset(date);
+  const age = Coach.daysBetween(date, todayKey());
+  $('wearTitle').textContent = `${age === 0 ? '오늘' : age === 1 ? '어제' : '그저께'} 실제로 입은 옷`;
+
+  const box = $('wearSlots');
+  box.textContent = '';
+  const items = Wardrobe.list();
+  for (const slot of WEAR_SLOTS) {
+    const set = document.createElement('fieldset');
+    set.className = 'field';
+    const legend = document.createElement('legend');
+    legend.textContent = Coach.SLOT_LABEL[slot];
+    set.append(legend);
+
+    const picks = document.createElement('div');
+    picks.className = 'pick';
+    const value = preset[slot];
+    const level = /^w([1-5])$/.exec(value || '');
+    if (slot === 'outer') picks.append(radio(slot, 'none', '안 입음', value === 'none'));
+    for (const it of items.filter((x) => x.type === slot).sort((a, b) => a.warmth - b.warmth)) {
+      picks.append(radio(slot, it.id, it.name, value === it.id, it.color));
+    }
+    picks.append(radio(slot, 'other', '옷장에 없는 옷', Boolean(level)));
+    set.append(picks);
+
+    const thick = document.createElement('div');
+    thick.className = 'seg thick';
+    thick.dataset.slot = slot;
+    thick.hidden = !level;
+    for (let w = 1; w <= 5; w++) thick.append(radio(`${slot}W`, String(w), THICKNESS[w], level?.[1] === String(w)));
+    set.append(thick);
+    box.append(set);
+  }
+  for (const input of $('wearForm').querySelectorAll('input[name="feel"]')) input.checked = input.value === '';
+  $('wearError').textContent = '';
+  $('wearDialog').showModal();
+}
+
+// "옷장에 없는 옷"을 고르면 두께 칸을 연다
+function onWearChange(e) {
+  const slot = e.target.name;
+  if (!WEAR_SLOTS.includes(slot)) return;
+  const thick = [...$('wearSlots').querySelectorAll('.thick')].find((el) => el.dataset.slot === slot);
+  if (thick) thick.hidden = e.target.value !== 'other';
+}
+
+function onWearSubmit(e) {
+  e.preventDefault();
+  const form = $('wearForm');
+  const picked = (name) => form.querySelector(`input[name="${name}"]:checked`)?.value || '';
+  const slots = {};
+  for (const slot of WEAR_SLOTS) {
+    let v = picked(slot);
+    if (v === 'other') v = picked(`${slot}W`) ? `w${picked(`${slot}W`)}` : '';
+    slots[slot] = v;
+  }
+  const missing = ['top', 'bottom'].filter((slot) => !slots[slot]).map((slot) => Coach.SLOT_LABEL[slot]);
+  if (missing.length) {
+    $('wearError').textContent = `${missing.join('·')}를 골라 주세요 (옷장에 없으면 두께를 골라 주세요)`;
+    return;
+  }
+  $('wearDialog').close();
+  if (!slots.outer) slots.outer = 'none';
+  saveWear(wearDate, { slots, feel: picked('feel') });
 }
 
 /* ===== 입어 본 느낌 (피드백) ===== */
 
-const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
-
-// 날짜 → 'YYYY-MM-DD' (기기 시간대)
-function dateKey(d) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 function normalizeFeedback(raw) {
   const log = {};
-  const since = {};
-  for (const [date, feel] of Object.entries(raw?.log || {})) {
-    if (DATE_KEY.test(date) && (FEELS[feel] || feel === 'skip')) log[date] = feel;
+  for (const [date, value] of Object.entries(raw?.log || {})) {
+    if (!DATE_KEY.test(date)) continue;
+    const entry = typeof value === 'string' ? { feel: value } : value; // 예전 기록은 글자만
+    if (!entry || !(FEELS[entry.feel] || entry.feel === 'skip')) continue;
+    const clean = { feel: entry.feel };
+    for (const k of ['warmth', 'need', 'learned', 'at']) if (finite(entry[k])) clean[k] = entry[k];
+    log[date] = clean;
   }
+  const keep = Object.keys(log).sort().slice(-FEEDBACK_KEEP);
+  const since = {};
   for (const [id, date] of Object.entries(raw?.since || {})) if (DATE_KEY.test(date)) since[id] = date;
-  const carried = Number(raw?.carried) || 0;
-  return { ...Coach.pruneFeedback({ log, carried }, todayKey(), WORN_KEEP_DAYS), since };
+  const out = { log: Object.fromEntries(keep.map((date) => [date, log[date]])), since };
+  if (finite(raw?.resetAt)) out.resetAt = raw.resetAt;
+  return out;
 }
 
 function loadFeedback() {
@@ -308,8 +510,25 @@ function setFeedback(next) {
   storageSet(FEEDBACK_KEY, JSON.stringify(state.feedback));
 }
 
+// "어땠어요?" 답: 그날 입은 기록의 숫자를 함께 남긴다
+function answerFeel(date, feel) {
+  const before = learned();
+  const entry = state.worn[date] || {};
+  const answer = { feel, at: Date.now() };
+  for (const k of ['warmth', 'need', 'learned']) if (finite(entry[k])) answer[k] = entry[k];
+  setFeedback({ ...state.feedback, log: { ...state.feedback.log, [date]: answer } });
+  const after = learned();
+  if (feel === 'skip') state.feedbackNote = '';
+  else if (after !== before) {
+    state.feedbackNote = `고마워요. 입어 본 느낌 보정이 ${signed(after)}가 됐어요 — 앞으로 조금 더 ${after > before ? '시원하게' : '따뜻하게'} 추천할게요.`;
+  } else {
+    state.feedbackNote = feel === 'good' ? '고마워요. 지금처럼 맞출게요.' : '고마워요. 기록해 둘게요 — 몇 번 더 모이면 추천에 반영돼요.';
+  }
+  renderOutfit();
+}
+
 // 체감 보정 합계: 3단계 + 피드백으로 배운 값
-const learned = () => Coach.learnedOffset(state.feedback);
+const learned = () => Coach.learnedOffset(state.feedback, WARMTH_TABLE);
 const totalOffset = () => SENSITIVITY[state.sense].offset + learned();
 const signed = (v) => `${v > 0 ? '+' : v < 0 ? '−' : '±'}${Math.abs(v)}°`;
 
@@ -320,9 +539,10 @@ function objectJosa(word) {
   return code % 28 ? '을' : '를';
 }
 
-// 옷 id 목록 → "회색 니트 + 청바지" (지워진 옷은 빼고)
-function wornTitle(ids) {
-  const names = ids.map((id) => Wardrobe.get(id)?.name).filter(Boolean);
+// 입은 기록 한 날 → "회색 니트 + 청바지" (예전 기록은 옷 이름으로, 지워진 옷은 빼고)
+function wornTitle(entry) {
+  if (entry?.title) return entry.title;
+  const names = (entry?.ids || []).map((id) => Wardrobe.get(id)?.name).filter(Boolean);
   return names.length ? names.slice(0, 2).join(' + ') : '그 옷';
 }
 
@@ -370,6 +590,9 @@ function renderFeedback() {
     skip.classList.add('feedback-skip');
     skip.setAttribute('aria-label', '건너뛰기');
     row.append(skip);
+    const other = button('사실 다른 옷 입었어요', { other: date });
+    other.className = 'link-btn';
+    box.append(other);
   } else if (fix) {
     const more = fix.to < fix.from;
     add('p', 'feedback-q', `${fix.item.name}${objectJosa(fix.item.name)} 입은 날 ${more ? `${fix.hot}번 더웠어요` : `${fix.cold}번 추웠어요`}. `
@@ -391,16 +614,16 @@ function renderFeedback() {
 
 // 피드백 상자 버튼
 function onFeedbackClick(e) {
-  const btn = e.target.closest('.chip-btn');
+  const btn = e.target.closest('.chip-btn') || e.target.closest('.link-btn');
   if (!btn) return;
   const d = btn.dataset;
   const today = todayKey();
   if (d.feel) {
-    setFeedback({ ...state.feedback, log: { ...state.feedback.log, [d.date]: d.feel } });
-    const v = learned();
-    state.feedbackNote = d.feel === 'skip' ? ''
-      : d.feel === 'good' ? '고마워요. 지금처럼 맞출게요.'
-        : `고마워요. 앞으로 ${Coach.FEEDBACK.step}° ${d.feel === 'hot' ? '시원하게' : '따뜻하게'} 맞출게요 (입어 본 느낌 보정 ${signed(v)}).`;
+    answerFeel(d.date, d.feel);
+    return;
+  } else if (d.other) {
+    openWearSheet(d.other);
+    return;
   } else if (d.fix) {
     setFeedback({ ...state.feedback, since: { ...state.feedback.since, [d.fix]: today } });
     state.feedbackNote = '고쳤어요. 다음 추천부터 반영돼요.';
@@ -414,10 +637,9 @@ function onFeedbackClick(e) {
   renderOutfit();
 }
 
-// 설정 메뉴 "초기화": 배운 보정을 0으로 (답한 기록은 남겨서 다시 묻지 않게)
+// 설정 메뉴 "초기화": 배운 보정을 0으로 (그 전 답은 배우는 데 안 쓰지만, 남겨서 다시 묻지 않게)
 function resetLearned() {
-  const steps = learned() - (state.feedback.carried || 0);
-  setFeedback({ ...state.feedback, carried: -steps });
+  setFeedback({ ...state.feedback, resetAt: Date.now() });
   renderOutfit();
 }
 
@@ -624,6 +846,7 @@ function renderOutfit(direction = null) {
   const base = baseTemp();
   const target = base + offset;
   const { band, pick, looks } = buildLooks(target, laterRange(offset));
+  state.now = { target, need: Coach.warmthNeed(Coach.findRow(WARMTH_TABLE, target)), learned: learned() };
 
   // 기준 문구: "지금 체감 18° 기준" / "슬라이더 10° 기준" (+ 보정: "→ 더위 잘 탐 · 입어 본 느낌 +0.5° 20.5°")
   const basis = $('basis');
@@ -760,7 +983,7 @@ function renderLookSlide(looks, direction = null) {
     tip.textContent = look.tip;
     card.append(tip);
 
-    // 옷장 추천이면 입은 기록 (최근에 입은 옷 안내 + "오늘 이거 입었어요")
+    // 옷장 추천이면 최근에 입은 옷 안내
     if (lookIds(look).length) {
       const days = Coach.wornDays(state.worn, todayKey());
       const recent = ['top', 'bottom', 'outer']
@@ -775,16 +998,10 @@ function renderLookSlide(looks, direction = null) {
         note.textContent = recent.join(' · ');
         card.append(note);
       }
-
-      const done = wornToday(look);
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'chip-btn worn-btn';
-      if (done) btn.classList.add('on');
-      btn.setAttribute('aria-pressed', String(done));
-      btn.textContent = done ? '✓ 오늘 입었어요 · 취소' : '👕 오늘 이거 입었어요';
-      card.append(btn);
     }
+
+    // 입은 기록: 도장 · 다른 옷
+    renderWearRow(card, look);
 
     detail.append(card);
   }
@@ -798,6 +1015,46 @@ function renderLookSlide(looks, direction = null) {
     fig.classList.add(direction === 'next' ? 'slide-next' : 'slide-prev');
     if (detail) detail.classList.add('fade');
   }
+}
+
+// 카드 아래 "이대로 입었어요" 도장 버튼 · "다른 옷 입었어요" (기본 룩 · 옷장 추천 모두)
+function renderWearRow(card, look) {
+  const row = document.createElement('div');
+  row.className = 'wear-row';
+  const button = (cls, text, act) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = cls;
+    btn.textContent = text;
+    btn.dataset.wear = act;
+    row.append(btn);
+    return btn;
+  };
+  const say = (cls, text) => {
+    const p = document.createElement('span');
+    p.className = cls;
+    p.textContent = text;
+    row.append(p);
+  };
+
+  if (!canRecord()) {
+    say('wear-note', '지금 날씨로 돌아가면 입은 옷을 기록할 수 있어요');
+  } else if (isStamped(look)) {
+    const stamp = document.createElement('span');
+    stamp.className = 'stamp';
+    if (state.justStamped) stamp.classList.add('pop');
+    stamp.setAttribute('aria-hidden', 'true');
+    stamp.textContent = '오늘 입음';
+    card.append(stamp);
+    say('wear-done', '✓ 오늘 이대로 입었어요');
+    button('link-btn', '취소', 'undo');
+  } else {
+    const today = state.worn[todayKey()];
+    if (today) say('wear-note', `오늘 기록: ${wornTitle(today)}`);
+    button('stamp-btn', today ? '🙆 이걸로 바꾸기' : '🙆 이대로 입었어요', 'stamp');
+    button('link-btn', today?.other ? '입은 옷 고치기' : '다른 옷 입었어요', 'other');
+  }
+  card.append(row);
 }
 
 // "다른 추천안" 버튼 · 옷장 안내
@@ -882,10 +1139,18 @@ function init() {
     resetLearned();
   });
 
-  // 코디 설명의 "오늘 이거 입었어요" 버튼
+  // 코디 설명의 "이대로 입었어요" 도장 · 취소 · "다른 옷 입었어요"
   $('lookDetail').addEventListener('click', (e) => {
-    if (e.target.closest('.worn-btn') && state.looks[state.selected]) toggleWorn(state.looks[state.selected]);
+    const act = e.target.closest('[data-wear]')?.dataset.wear;
+    const look = state.looks[state.selected];
+    if (!act || !look) return;
+    if (act === 'stamp') stampLook(look);
+    else if (act === 'undo') unstamp();
+    else if (act === 'other') openWearSheet(todayKey());
   });
+  $('wearForm').addEventListener('change', onWearChange);
+  $('wearForm').addEventListener('submit', onWearSubmit);
+  $('closeWearBtn').addEventListener('click', () => $('wearDialog').close());
 
   $('nextComboBtn').addEventListener('click', () => {
     state.combo.index += 1;
