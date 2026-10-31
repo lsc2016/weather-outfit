@@ -18,6 +18,8 @@
  *  - 색: 상·하의 밝기 차이, 같은 계열끼리 밝기까지 비슷한지, 쨍한 색이 몇 벌인지.
  *  - 입은 기록: 최근 며칠 안에 입은 상의 · 하의는 깎는다 (SCORE.recentWorn). 오늘 입은 건 안 깎는다
  *    ("입었어요"를 누르자마자 순서가 바뀌지 않게). 겉옷은 며칠 이어 입는 게 보통이라 안 본다.
+ *  - 일교차: 앞으로 12시간 안에 SWING 이상 따뜻해지고 겉옷이 있는 구간이면, 상의를 그때 온도 구간에
+ *    맞춘 조합을 먼저 (겉옷을 벗어도 상의만으로 괜찮게). 코치 한마디는 swingTip.
  *
  * ■ 코치 한마디 규칙
  *  - COACH_RULES: 위에서부터 먼저 맞는 규칙 하나의 문장을 쓴다. 함수 하나 = 규칙 하나.
@@ -71,7 +73,9 @@
     extraVivid: -2,     // 쨍한 색이 두 벌째부터 한 벌마다
     nearPage: 1,        // 묶음 안 다양성을 위해 이만큼 낮은 점수까지는 당겨 온다
     recentWorn: [0, -3, -2, -1], // 상의 · 하의를 [오늘, 어제, 그저께, 사흘 전] 입었을 때 (그 전은 0)
+    swingTop: -3,       // 이따 따뜻해질 때, 상의가 그때 구간 상의 범위 가운데값과 1 다를 때마다
   };
+  const SWING = 6; // 앞으로 이만큼(°) 오르거나 내리면 일교차로 본다
   const CONTRAST_HIGH = 0.3;
   const CONTRAST_MID = 0.15;
 
@@ -212,6 +216,37 @@
     return ['top', 'bottom'].reduce((sum, slot) => sum + (SCORE.recentWorn[worn[combo[slot].id]] ?? 0), 0);
   }
 
+  /* ===== 일교차 ===== */
+
+  // later = { hi, lo }: 앞으로 12시간 체감온도 최고 · 최저 (보정 포함). 없으면 null
+  const warmerLater = (later, temp) => Boolean(later) && later.hi - temp >= SWING;
+  const colderLater = (later, temp) => Boolean(later) && temp - later.lo >= SWING;
+
+  // 이따 따뜻해질 때 상의 점수: 그때 구간의 상의 범위 가운데값에 가까울수록 덜 깎는다
+  function swingScore(combo, rowLater) {
+    if (!rowLater || !combo.outer || !rowLater.top) return 0;
+    return SCORE.swingTop * Math.abs(combo.top.warmth - mid(rowLater.top));
+  }
+
+  // 일교차 한마디 (모든 추천안 tip 뒤에 붙인다). 해당 없으면 null
+  function swingTip({ temp, later, hasOuter }) {
+    if (warmerLater(later, temp)) {
+      return `앞으로 ${Math.round(later.hi)}°까지 올라가요. ${hasOuter ? '더우면 겉옷을 벗으세요' : '한낮엔 더 가볍게 느껴질 거예요'}`;
+    }
+    if (colderLater(later, temp)) {
+      return `앞으로 ${Math.round(later.lo)}°까지 내려가요. ${hasOuter ? '겉옷은 꼭 챙기세요' : '가벼운 겉옷을 챙기세요'}`;
+    }
+    return null;
+  }
+
+  // 추천안들 tip 에 일교차 한마디를 덧붙인다
+  function addSwing(looks, temp, later) {
+    return looks.map((look) => {
+      const extra = swingTip({ temp, later, hasOuter: Boolean(look.outer) });
+      return extra ? { ...look, tip: `${look.tip}. ${extra}` } : look;
+    });
+  }
+
   /* ===== 기본 추천 ===== */
 
   // 표(높은 온도 순, 맨 끝은 -Infinity)에서 온도에 맞는 줄
@@ -251,14 +286,15 @@
   /**
    * 옷장 옷으로 추천안 만들기
    *  opts = { items: 옷장 옷 배열, temp: 보정한 온도, warmthTable: WARMTH_TABLE, seed: 날짜 글자, page: 묶음 번호,
-   *          worn: wornDays 결과 { 옷 id: 며칠 전 } (없어도 됨) }
+   *          worn: wornDays 결과 { 옷 id: 며칠 전 } (없어도 됨),
+   *          later: { hi, lo } 앞으로 12시간 체감 최고 · 최저 (없어도 됨) }
    *  - 옷장이 비었으면 { empty: true }
    *  - 맞는 옷이 없는 칸이 있으면 { missing: ['겉옷'] } (소품은 없어도 됨 → acc 가 null)
    *  - 칸마다 옷은 있지만 합치면 너무 얇거나 두꺼우면 { noFit: true }
    *  - 아니면 { looks: [{ top, bottom, outer, acc, tip }], key, page, pageCount }
    *    key 는 온도 구간 (구간이 바뀌면 첫 묶음부터 보여주려고), page 는 pageCount 로 돌린 값.
    */
-  function pickFromCloset({ items, temp, warmthTable, seed, page = 0, worn = {} }) {
+  function pickFromCloset({ items, temp, warmthTable, seed, page = 0, worn = {}, later = null }) {
     if (!items.length) return { empty: true };
 
     const row = findRow(warmthTable, temp);
@@ -274,6 +310,7 @@
       else pools[slot] = [null];
     }
     if (missing.length) return { missing };
+    const rowLater = warmerLater(later, temp) && row.outer ? findRow(warmthTable, later.hi) : null;
 
     const all = [];
     for (const top of pools.top)
@@ -282,7 +319,7 @@
           for (const acc of pools.acc) {
             const combo = { top, bottom, outer, acc };
             const warmth = warmthScore(combo, row);
-            if (warmth !== null) all.push({ ...combo, score: warmth + colorScore(combo) + wornScore(combo, worn) });
+            if (warmth !== null) all.push({ ...combo, score: warmth + colorScore(combo) + wornScore(combo, worn) + swingScore(combo, rowLater) });
           }
     if (!all.length) return { noFit: true };
 
@@ -329,7 +366,7 @@
   const Coach = {
     COACH_RULES, COACH_ADDONS, COLOR_FAMILIES, SLOT_LABEL, PER_PAGE, SCORE, WARMTH_SLACK, WARMTH_MAX_GAP,
     hexToHsl, colorFamily, isVivid, colorScore, warmthNeed, warmthScore, seededShuffle,
-    daysBetween, wornDays, wornScore,
+    daysBetween, wornDays, wornScore, SWING, swingScore, swingTip, addSwing,
     coachTip, findRow, defaultLooks, pickFromCloset, mergeItems, addRain, lookTitle,
   };
 

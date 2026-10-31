@@ -283,3 +283,27 @@ test('입은 기록: 며칠 전인지 세고, 어제 입은 상의 쌍은 뒤로
   assert.deepStrictEqual(order({ [shirt.id]: 0 }), order({}), '오늘 입은 건 안 깎음');
   assert.deepStrictEqual(order({ [shirt.id]: 9 }), order({}), '오래전은 안 깎음');
 });
+
+test('일교차: 이따 따뜻해지면 겉옷을 벗어도 되는 얇은 상의 조합이 먼저', () => {
+  const items = [
+    cloth('top', '두꺼운 니트', '#ffffff', 4),
+    cloth('top', '얇은 니트', '#f5f5f5', 3),
+    cloth('bottom', '검정 기모 바지', '#111111', 4),
+    cloth('outer', '울 코트', '#8a8a8a', 4),
+    cloth('outer', '패딩', '#555555', 5),
+  ];
+  const tops = (later) => Coach.pickFromCloset({ items, temp: 7, warmthTable: WARMTH_TABLE, seed: SEED, later })
+    .looks.map((l) => `${l.top.name}+${l.outer.name}`);
+  assert.deepStrictEqual(tops(null), ['두꺼운 니트+울 코트', '얇은 니트+패딩']);
+  assert.deepStrictEqual(tops({ hi: 17, lo: 6 }), ['얇은 니트+패딩', '두꺼운 니트+울 코트']);
+  assert.deepStrictEqual(tops({ hi: 11, lo: 6 }), tops(null), '오르는 폭이 SWING 보다 작으면 그대로');
+});
+
+test('일교차 한마디: 오르면 "벗으세요", 내리면 "챙기세요", 작으면 없음', () => {
+  assert.strictEqual(Coach.swingTip({ temp: 9, later: { hi: 18, lo: 8 }, hasOuter: true }), '앞으로 18°까지 올라가요. 더우면 겉옷을 벗으세요');
+  assert.strictEqual(Coach.swingTip({ temp: 24, later: { hi: 25, lo: 14 }, hasOuter: false }), '앞으로 14°까지 내려가요. 가벼운 겉옷을 챙기세요');
+  assert.strictEqual(Coach.swingTip({ temp: 14, later: { hi: 18, lo: 10 }, hasOuter: true }), null);
+  assert.strictEqual(Coach.swingTip({ temp: 14, later: null, hasOuter: true }), null);
+  const [look] = Coach.addSwing([{ tip: '니트와 청바지', outer: { name: '재킷' } }], 9, { hi: 18, lo: 8 });
+  assert.strictEqual(look.tip, '니트와 청바지. 앞으로 18°까지 올라가요. 더우면 겉옷을 벗으세요');
+});

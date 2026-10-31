@@ -201,7 +201,7 @@ function isPrecipCode(code) {
 
 /* ===== 상태 ===== */
 const state = {
-  weather: null,      // { feels, temp, code, precip, isRain, place, savedAt }
+  weather: null,      // { feels, feelsHi, feelsLo, temp, code, precip, isRain, place, savedAt }
   sense: 'normal',
   sliderTemp: 20,     // 슬라이더 값
   custom: false,      // 슬라이더로 다른 온도를 보고 있는지
@@ -292,12 +292,17 @@ async function fetchWeather(lat, lon) {
   const url = 'https://api.open-meteo.com/v1/forecast'
     + `?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}`
     + '&current=temperature_2m,apparent_temperature,precipitation,weather_code'
+    + '&hourly=apparent_temperature&forecast_hours=12'
     + '&timezone=auto';
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json();
   const c = json.current;
+  // 앞으로 12시간 체감온도 (일교차). 없으면 null
+  const hours = (json.hourly?.apparent_temperature ?? []).filter((t) => typeof t === 'number');
   return {
+    feelsHi: hours.length ? Math.max(c.apparent_temperature, ...hours) : null,
+    feelsLo: hours.length ? Math.min(c.apparent_temperature, ...hours) : null,
     feels: c.apparent_temperature,
     temp: c.temperature_2m,
     code: c.weather_code,
@@ -390,12 +395,20 @@ function baseTemp() {
   return state.sliderTemp;
 }
 
+// 앞으로 12시간 체감 최고 · 최저 (보정 포함). 슬라이더로 다른 온도를 볼 때 · 정보가 없을 때는 null
+function laterRange(offset) {
+  const w = state.weather;
+  if (state.custom || !w || typeof w.feelsHi !== 'number' || typeof w.feelsLo !== 'number') return null;
+  return { hi: Math.round(w.feelsHi) + offset, lo: Math.round(w.feelsLo) + offset };
+}
+
 /**
  * 이 온도의 추천안들 (비 오면 모든 추천안 소품에 우산)
  *  옷장에 맞는 옷이 있으면 옷장 추천, 없으면 OUTFIT_TABLE 기본 룩.
  *  pick 은 Coach.pickFromCloset 결과 (안내 · "다른 추천안" 버튼에 씀)
+ *  later 는 앞으로 12시간 체감 최고 · 최저 (일교차 — 점수와 코치 한마디에 씀, 없으면 null)
  */
-function buildLooks(target) {
+function buildLooks(target, later = null) {
   const { band, looks: defaults } = Coach.defaultLooks(OUTFIT_TABLE, target);
   const key = String(Coach.findRow(WARMTH_TABLE, target).min);
   if (state.combo.key !== key) state.combo = { key, index: 0 }; // 구간이 바뀌면 첫 묶음부터
@@ -407,6 +420,7 @@ function buildLooks(target) {
     seed: new Date().toDateString(),
     page: state.combo.index,
     worn: Coach.wornDays(state.worn, todayKey()),
+    later,
   });
   // 옷장에 맞는 소품이 없으면 소품 칸만 기본 룩에서
   const fallbackAcc = defaults.find((look) => look.acc)?.acc ?? null;
@@ -420,6 +434,7 @@ function buildLooks(target) {
     }))
     : defaults;
 
+  looks = Coach.addSwing(looks, target, later);
   if (state.weather?.isRain) looks = Coach.addRain(looks, RAIN_ITEM);
   return { band, pick, looks };
 }
@@ -450,13 +465,16 @@ function renderHero() {
     rain.textContent = '강수 없음';
   }
   line.append(rain);
+  if (typeof w.feelsHi === 'number' && typeof w.feelsLo === 'number') {
+    line.append(` · 12시간 체감 ${Math.round(w.feelsLo)}~${Math.round(w.feelsHi)}°`);
+  }
 }
 
 function renderOutfit(direction = null) {
   const offset = SENSITIVITY[state.sense].offset;
   const base = baseTemp();
   const target = base + offset;
-  const { band, pick, looks } = buildLooks(target);
+  const { band, pick, looks } = buildLooks(target, laterRange(offset));
 
   // 기준 문구: "지금 체감 18° 기준" / "슬라이더 10° 기준" (+ 보정)
   const basis = $('basis');

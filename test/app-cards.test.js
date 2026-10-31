@@ -292,3 +292,17 @@ test('어제 입은 상의는 뒤로 가고, 그 옷이 나오는 카드엔 "어
   assert.strictEqual(titles(), '흰 셔츠 + 검정 슬랙스');
   assert.match(els.lookDetail.querySelectorAll('.look-worn')[0].textContent, /상의 어제 입음 · 하의 어제 입음/);
 });
+
+test('일교차가 크면 모든 추천안 한마디에 붙고 날씨 줄에 12시간 범위, 슬라이더로 다른 온도를 보면 안 붙는다', () => {
+  const { els, run } = boot();
+  run(`applyWeather(${JSON.stringify({ ...WEATHER, feelsHi: 22, feelsLo: 12 })})`);
+  assert.match(els.weatherLine.textContent, /12시간 체감 12~22°/);
+  const tip = () => els.lookDetail.querySelectorAll('.look-tip')[0].textContent;
+  for (let i = 0; i < run('state.looks.length'); i++) {
+    assert.match(tip(), /앞으로 22°까지 올라가요\. 더우면 겉옷을 벗으세요$/);
+    els.nextLookBtn.dispatch('click');
+  }
+  els.slider.value = '14';
+  els.slider.dispatch('input', { target: { value: '14' } });
+  assert.doesNotMatch(tip(), /앞으로/);
+});
