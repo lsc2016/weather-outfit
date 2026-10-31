@@ -159,6 +159,8 @@ body {
 }
 .settings-menu label:has(input:checked) { background: var(--accent-soft); }
 .settings-menu input { accent-color: var(--accent); margin: 0; }
+.settings-learned { margin: 6px 8px 2px; font-size: 12px; color: var(--text-3); display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.settings-learned b { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .settings-menu small { margin-left: auto; color: var(--text-3); font-variant-numeric: tabular-nums; }
 
 /* ===== 1. 체감온도 ===== */
@@ -342,6 +344,18 @@ body {
 .look-icon .dot { width: 14px; height: 14px; }
 .look-name { font-weight: 600; }
 .look-tip { font-size: 13px; color: var(--text-2); line-height: 1.4; }
+/* 입어 본 느낌: "어제 입은 옷 어땠어요?" */
+.feedback-box {
+  position: relative;
+  background: var(--accent-soft);
+  border-radius: 14px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.feedback-q { margin: 0 0 8px; padding-right: 24px; font-size: 14px; line-height: 1.4; }
+.feedback-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.feedback-btns .chip-btn { background: var(--surface); font-size: 13px; padding: 6px 12px; }
+.feedback-btns .chip-btn.feedback-skip { position: absolute; top: 6px; right: 6px; padding: 2px 8px; background: none; color: var(--text-3); }
 .look-worn { font-size: 12px; color: var(--text-3); }
 .chip-btn.worn-btn { align-self: flex-start; font-size: 13px; padding: 6px 12px; }
 .chip-btn.worn-btn.on { color: var(--text-2); background: var(--line); }

@@ -37,6 +37,8 @@
           <label><input type="radio" name="sense" value="cold"> 추위를 잘 탐 <small>−2°</small></label>
           <label><input type="radio" name="sense" value="normal"> 보통 <small>±0°</small></label>
           <label><input type="radio" name="sense" value="hot"> 더위를 잘 탐 <small>+2°</small></label>
+          <p class="settings-learned">입어 본 느낌으로 <b id="learnedValue">±0°</b>
+            <button type="button" class="link-btn" id="learnedReset" hidden>초기화</button></p>
         </div>
       </div>
     </header>
@@ -54,6 +56,7 @@
         <h1 id="outfitTitle">오늘의 추천</h1>
         <p class="basis" id="basis"></p>
       </div>
+      <div class="feedback-box" id="feedbackBox" aria-live="polite" hidden></div>
       <div class="figure-stage" id="figureStage">
         <div class="figure" id="figure" role="img" aria-label="추천 옷을 입은 캐릭터"></div>
         <button type="button" class="slide-btn prev" id="prevLookBtn" aria-label="이전 코디">

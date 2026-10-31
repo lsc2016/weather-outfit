@@ -70,6 +70,7 @@ class El {
 
 function boot({ wardrobe = [], storage = {} } = {}) {
   const backupParts = {};
+  const changeListeners = [];
   const els = {};
   const getEl = (id) => (els[id] ||= new El());
   const renders = [];
@@ -96,7 +97,12 @@ function boot({ wardrobe = [], storage = {} } = {}) {
     Wardrobe: {
       list: () => wardrobe,
       artFor: (it) => ({ top: 'knit', bottom: 'jeans', outer: 'jacket', acc: 'scarf' })[it.type],
-      onChange() {},
+      get: (id) => wardrobe.find((it) => it.id === id) || null,
+      update: (id, fields) => {
+        Object.assign(wardrobe.find((it) => it.id === id), fields, { updatedAt: Date.now() });
+        changeListeners.forEach((fn) => fn());
+      },
+      onChange: (fn) => changeListeners.push(fn),
       addBackupPart: (name, part) => { backupParts[name] = part; },
     },
   };
@@ -305,4 +311,60 @@ test('일교차가 크면 모든 추천안 한마디에 붙고 날씨 줄에 12�
   els.slider.value = '14';
   els.slider.dispatch('input', { target: { value: '14' } });
   assert.doesNotMatch(tip(), /앞으로/);
+});
+
+const daysAgo = (n) => {
+  const d = new Date(); d.setDate(d.getDate() - n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const feedbackCloset = () => [
+  { id: 'a', type: 'top', name: '흰 셔츠', color: '#ffffff', warmth: 3 },
+  { id: 'p', type: 'bottom', name: '검정 슬랙스', color: '#1a1a1a', warmth: 3 },
+  { id: 'j', type: 'outer', name: '회색 재킷', color: '#8a8a8a', warmth: 3 },
+];
+
+test('어제 입은 옷 "어땠어요?" → 더웠어요를 누르면 추천 온도가 0.5° 오르고 설정 메뉴에도 보인다, 초기화하면 0', () => {
+  const { els, storage, run } = boot({
+    wardrobe: feedbackCloset(),
+    storage: { 'outfit.worn.v1': JSON.stringify({ [daysAgo(1)]: ['a', 'p', 'j'] }) },
+  });
+  run(`applyWeather(${JSON.stringify(WEATHER)})`);
+  assert.strictEqual(els.feedbackBox.hidden, false);
+  assert.match(els.feedbackBox.textContent, /어제 입은 흰 셔츠 \+ 검정 슬랙스, 어땠어요\?/);
+
+  const hot = els.feedbackBox.querySelectorAll('.chip-btn').find((b) => b.dataset.feel === 'hot');
+  els.feedbackBox.dispatch('click', hot);
+  assert.deepStrictEqual(JSON.parse(storage['outfit.feedback.v1']).log, { [daysAgo(1)]: 'hot' });
+  assert.match(els.basis.textContent, /입어 본 느낌 \+0\.5° 14\.5°/);
+  assert.match(els.feedbackBox.textContent, /0\.5° 시원하게/);
+  assert.strictEqual(els.learnedValue.textContent, '+0.5°');
+  assert.strictEqual(els.learnedReset.hidden, false);
+
+  // 닫으면 상자가 사라지고 다시 묻지 않는다
+  els.feedbackBox.dispatch('click', els.feedbackBox.querySelectorAll('.chip-btn')[0]);
+  assert.strictEqual(els.feedbackBox.hidden, true);
+
+  els.learnedReset.dispatch('click');
+  assert.strictEqual(els.learnedValue.textContent, '±0°');
+  assert.doesNotMatch(els.basis.textContent, /입어 본 느낌/);
+  assert.strictEqual(els.feedbackBox.hidden, true);
+});
+
+test('같은 상의로 두 번 더웠으면 "따뜻한 정도 3 → 2로 낮출까요?" → 낮추기를 누르면 옷이 고쳐지고 더 묻지 않는다', () => {
+  const wardrobe = feedbackCloset();
+  const { els, run } = boot({
+    wardrobe,
+    storage: {
+      'outfit.worn.v1': JSON.stringify({ [daysAgo(2)]: ['a', 'p'], [daysAgo(1)]: ['a', 'j'] }),
+      'outfit.feedback.v1': JSON.stringify({ log: { [daysAgo(2)]: 'hot', [daysAgo(1)]: 'hot' } }),
+    },
+  });
+  run(`applyWeather(${JSON.stringify(WEATHER)})`);
+  assert.match(els.feedbackBox.textContent, /흰 셔츠를 입은 날 2번 더웠어요\. 따뜻한 정도를 3 → 2로 낮출까요\?/);
+  const fix = els.feedbackBox.querySelectorAll('.chip-btn').find((b) => b.dataset.fix);
+  els.feedbackBox.dispatch('click', fix);
+  assert.strictEqual(wardrobe[0].warmth, 2);
+  assert.match(els.feedbackBox.textContent, /고쳤어요/);
+  els.feedbackBox.dispatch('click', els.feedbackBox.querySelectorAll('.chip-btn')[0]);
+  assert.strictEqual(els.feedbackBox.hidden, true);
 });

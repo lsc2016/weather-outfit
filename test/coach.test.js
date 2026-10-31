@@ -307,3 +307,35 @@ test('일교차 한마디: 오르면 "벗으세요", 내리면 "챙기세요", �
   const [look] = Coach.addSwing([{ tip: '니트와 청바지', outer: { name: '재킷' } }], 9, { hi: 18, lo: 8 });
   assert.strictEqual(look.tip, '니트와 청바지. 앞으로 18°까지 올라가요. 더우면 겉옷을 벗으세요');
 });
+
+test('입어 본 느낌: 더웠어요 +0.5° · 추웠어요 −0.5°, 한계 ±5°, 오래된 기록은 carried 로', () => {
+  assert.strictEqual(Coach.learnedOffset({ log: { '2026-10-28': 'hot', '2026-10-29': 'hot', '2026-10-30': 'cold' }, carried: 0 }), 0.5);
+  assert.strictEqual(Coach.learnedOffset({ log: { '2026-10-30': 'good', '2026-10-31': 'skip' }, carried: 1 }), 1);
+  assert.strictEqual(Coach.learnedOffset({ log: {}, carried: 9 }), 5);
+  assert.strictEqual(Coach.learnedOffset(undefined), 0);
+  const pruned = Coach.pruneFeedback({ log: { '2026-09-01': 'hot', '2026-10-30': 'cold' }, carried: 1 }, '2026-10-31', 30);
+  assert.deepStrictEqual(pruned, { log: { '2026-10-30': 'cold' }, carried: 1.5 });
+  assert.strictEqual(Coach.learnedOffset(pruned), 1); // 버려도 배운 값은 그대로
+});
+
+test('"어땠어요?" 묻는 날: 답 없는 가장 최근 입은 날, 오늘 것은 저녁부터, 사흘 지나면 안 물음', () => {
+  const worn = { '2026-10-28': ['a'], '2026-10-29': ['a'], '2026-10-30': ['b'], '2026-10-31': ['c'] };
+  const ask = (hour, log = {}) => Coach.feedbackDate({ worn, feedback: { log }, today: '2026-10-31', hour });
+  assert.strictEqual(ask(9), '2026-10-30');
+  assert.strictEqual(ask(18), '2026-10-31');
+  assert.strictEqual(ask(9, { '2026-10-30': 'good' }), '2026-10-29');
+  assert.strictEqual(ask(9, { '2026-10-30': 'good', '2026-10-29': 'skip' }), null); // 10-28 은 사흘 전
+});
+
+test('따뜻한 정도 고치기 제안: 같은 옷으로 2번 더 더우면 −1, 엇갈리면 없음, since 이후만 셈', () => {
+  const knit = { id: 'k', type: 'top', name: '니트', warmth: 4 };
+  const pants = { id: 'p', type: 'bottom', name: '바지', warmth: 3 };
+  const scarf = { id: 's', type: 'acc', name: '목도리', warmth: 4 };
+  const worn = { '2026-10-27': ['k', 'p', 's'], '2026-10-28': ['k', 's'], '2026-10-29': ['p'] };
+  const feedback = { log: { '2026-10-27': 'hot', '2026-10-28': 'hot', '2026-10-29': 'cold' } };
+  const got = Coach.warmthSuggestions({ items: [knit, pants, scarf], worn, feedback });
+  assert.deepStrictEqual(got.map((s) => [s.item.id, s.from, s.to]), [['k', 4, 3]]); // 바지는 1:1, 소품은 안 봄
+  assert.deepStrictEqual(Coach.warmthSuggestions({ items: [knit], worn, feedback, since: { k: '2026-10-27' } }), []);
+  const cold = Coach.warmthSuggestions({ items: [{ ...pants, warmth: 5 }], worn: { a: ['p'], b: ['p'] }, feedback: { log: { a: 'cold', b: 'cold' } } });
+  assert.deepStrictEqual(cold, [], '5 보다 높일 수 없음');
+});

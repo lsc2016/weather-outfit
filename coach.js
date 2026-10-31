@@ -216,6 +216,76 @@
     return ['top', 'bottom'].reduce((sum, slot) => sum + (SCORE.recentWorn[worn[combo[slot].id]] ?? 0), 0);
   }
 
+  /* ===== 입어 본 느낌 (피드백) ===== */
+
+  /*
+   * 피드백 = { log: { 'YYYY-MM-DD': 'cold' | 'good' | 'hot' | 'skip' }, carried: 숫자 }
+   *  - log 의 날짜는 입은 기록(worn)의 날짜. 그날 입은 옷은 worn[날짜] 에서 찾는다.
+   *  - 내 체감 보정(learnedOffset)은 carried + log 의 걸음 합. 오래된 log 를 버릴 때 그 걸음은 carried 로 옮긴다.
+   *  - "더웠어요" → +, "추웠어요" → − (추천 온도를 올리면 더 얇은 옷이 나온다 — 체감 보정 3단계와 같은 방향)
+   */
+  const FEEDBACK = {
+    step: 0.5,          // 피드백 한 번에 움직이는 체감 보정(°)
+    max: 5,             // 체감 보정 한계 (±)
+    askDays: 2,         // 입은 날부터 며칠 안에 "어땠어요?" 를 물을지 (그 뒤엔 안 물음)
+    askTodayFrom: 17,   // 오늘 입은 옷은 이 시각부터 물음
+    suggestAfter: 2,    // 한 옷에 같은 쪽 피드백이 이만큼 더 많으면 따뜻한 정도 고치기 제안
+  };
+  const FEEL_STEP = { hot: 1, cold: -1 };
+
+  const clampOffset = (v) => Math.max(-FEEDBACK.max, Math.min(FEEDBACK.max, v));
+
+  // 피드백으로 배운 체감 보정(°)
+  function learnedOffset(feedback) {
+    const sum = Object.values(feedback?.log || {}).reduce((acc, feel) => acc + (FEEL_STEP[feel] ?? 0) * FEEDBACK.step, 0);
+    return clampOffset((feedback?.carried || 0) + sum);
+  }
+
+  // keepDays 보다 오래된 log 는 버리고 그 걸음은 carried 로 옮긴다
+  function pruneFeedback(feedback, today, keepDays) {
+    const log = {};
+    let carried = feedback?.carried || 0;
+    for (const [date, feel] of Object.entries(feedback?.log || {})) {
+      if (daysBetween(date, today) > keepDays) carried += (FEEL_STEP[feel] ?? 0) * FEEDBACK.step;
+      else log[date] = feel;
+    }
+    return { log, carried: clampOffset(carried) };
+  }
+
+  // "어땠어요?" 를 물을 날짜 (가장 최근, 아직 답 없는 입은 날). 없으면 null
+  function feedbackDate({ worn, feedback, today, hour }) {
+    const dates = Object.keys(worn || {})
+      .filter((date) => !(date in (feedback?.log || {})))
+      .filter((date) => {
+        const age = daysBetween(date, today);
+        return age > 0 ? age <= FEEDBACK.askDays : age === 0 && hour >= FEEDBACK.askTodayFrom;
+      })
+      .sort();
+    return dates.length ? dates[dates.length - 1] : null;
+  }
+
+  /**
+   * 따뜻한 정도 고치기 제안: [{ item, from, to, hot, cold }]
+   *  - 상의 · 하의 · 겉옷마다, 입은 날의 피드백에서 더웠어요 − 추웠어요 가 suggestAfter 이상이면 −1, 반대면 +1
+   *  - since[옷 id] ('YYYY-MM-DD') 이후의 피드백만 센다 (따뜻한 정도를 고쳤거나 "괜찮아요" 한 뒤로 다시 세게)
+   */
+  function warmthSuggestions({ items, worn, feedback, since = {} }) {
+    const out = [];
+    for (const item of items) {
+      if (item.type === 'acc') continue;
+      let hot = 0, cold = 0;
+      for (const [date, feel] of Object.entries(feedback?.log || {})) {
+        if (!(worn?.[date] || []).includes(item.id)) continue;
+        if (since[item.id] && date <= since[item.id]) continue;
+        if (feel === 'hot') hot++;
+        if (feel === 'cold') cold++;
+      }
+      const to = item.warmth + (hot - cold >= FEEDBACK.suggestAfter ? -1 : cold - hot >= FEEDBACK.suggestAfter ? 1 : 0);
+      if (to !== item.warmth && to >= 1 && to <= 5) out.push({ item, from: item.warmth, to, hot, cold });
+    }
+    return out;
+  }
+
   /* ===== 일교차 ===== */
 
   // later = { hi, lo }: 앞으로 12시간 체감온도 최고 · 최저 (보정 포함). 없으면 null
@@ -367,6 +437,7 @@
     COACH_RULES, COACH_ADDONS, COLOR_FAMILIES, SLOT_LABEL, PER_PAGE, SCORE, WARMTH_SLACK, WARMTH_MAX_GAP,
     hexToHsl, colorFamily, isVivid, colorScore, warmthNeed, warmthScore, seededShuffle,
     daysBetween, wornDays, wornScore, SWING, swingScore, swingTip, addSwing,
+    FEEDBACK, learnedOffset, pruneFeedback, feedbackDate, warmthSuggestions,
     coachTip, findRow, defaultLooks, pickFromCloset, mergeItems, addRain, lookTitle,
   };
 
