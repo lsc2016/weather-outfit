@@ -342,6 +342,9 @@ body {
 .look-icon .dot { width: 14px; height: 14px; }
 .look-name { font-weight: 600; }
 .look-tip { font-size: 13px; color: var(--text-2); line-height: 1.4; }
+.look-worn { font-size: 12px; color: var(--text-3); }
+.chip-btn.worn-btn { align-self: flex-start; font-size: 13px; padding: 6px 12px; }
+.chip-btn.worn-btn.on { color: var(--text-2); background: var(--line); }
 
 /* 옷장 옷 색 동그라미 (흰 옷도 보이게 테두리) */
 .dot {

@@ -16,6 +16,8 @@
  *    (얇은 상의 + 두꺼운 겉옷처럼 겹쳐 입기). 합이 WARMTH_MAX_GAP 넘게 벗어나면 뺀다.
  *    하의 · 소품은 범위 그대로.
  *  - 색: 상·하의 밝기 차이, 같은 계열끼리 밝기까지 비슷한지, 쨍한 색이 몇 벌인지.
+ *  - 입은 기록: 최근 며칠 안에 입은 상의 · 하의는 깎는다 (SCORE.recentWorn). 오늘 입은 건 안 깎는다
+ *    ("입었어요"를 누르자마자 순서가 바뀌지 않게). 겉옷은 며칠 이어 입는 게 보통이라 안 본다.
  *
  * ■ 코치 한마디 규칙
  *  - COACH_RULES: 위에서부터 먼저 맞는 규칙 하나의 문장을 쓴다. 함수 하나 = 규칙 하나.
@@ -68,6 +70,7 @@
     outerFlat: -1,      // 겉옷이 상의나 하의와 같은 유채색 계열에 밝기도 비슷
     extraVivid: -2,     // 쨍한 색이 두 벌째부터 한 벌마다
     nearPage: 1,        // 묶음 안 다양성을 위해 이만큼 낮은 점수까지는 당겨 온다
+    recentWorn: [0, -3, -2, -1], // 상의 · 하의를 [오늘, 어제, 그저께, 사흘 전] 입었을 때 (그 전은 0)
   };
   const CONTRAST_HIGH = 0.3;
   const CONTRAST_MID = 0.15;
@@ -185,6 +188,30 @@
     return [main, ...extra].join('. ');
   }
 
+  /* ===== 입은 기록 ===== */
+
+  // 'YYYY-MM-DD' 두 날짜 사이 날 수 (b − a)
+  function daysBetween(a, b) {
+    const utc = (key) => { const [y, m, d] = key.split('-').map(Number); return Date.UTC(y, m - 1, d); };
+    return Math.round((utc(b) - utc(a)) / 86400000);
+  }
+
+  // 입은 기록 { 'YYYY-MM-DD': [옷 id] } → { 옷 id: 마지막으로 입은 지 며칠 } (오늘 = 0, 앞날 기록은 무시)
+  function wornDays(log, today) {
+    const out = {};
+    for (const [date, ids] of Object.entries(log || {})) {
+      const days = daysBetween(date, today);
+      if (!(days >= 0)) continue;
+      for (const id of ids) if (!(out[id] <= days)) out[id] = days;
+    }
+    return out;
+  }
+
+  // 조합의 입은 기록 점수 (상의 · 하의만)
+  function wornScore(combo, worn) {
+    return ['top', 'bottom'].reduce((sum, slot) => sum + (SCORE.recentWorn[worn[combo[slot].id]] ?? 0), 0);
+  }
+
   /* ===== 기본 추천 ===== */
 
   // 표(높은 온도 순, 맨 끝은 -Infinity)에서 온도에 맞는 줄
@@ -223,14 +250,15 @@
 
   /**
    * 옷장 옷으로 추천안 만들기
-   *  opts = { items: 옷장 옷 배열, temp: 보정한 온도, warmthTable: WARMTH_TABLE, seed: 날짜 글자, page: 묶음 번호 }
+   *  opts = { items: 옷장 옷 배열, temp: 보정한 온도, warmthTable: WARMTH_TABLE, seed: 날짜 글자, page: 묶음 번호,
+   *          worn: wornDays 결과 { 옷 id: 며칠 전 } (없어도 됨) }
    *  - 옷장이 비었으면 { empty: true }
    *  - 맞는 옷이 없는 칸이 있으면 { missing: ['겉옷'] } (소품은 없어도 됨 → acc 가 null)
    *  - 칸마다 옷은 있지만 합치면 너무 얇거나 두꺼우면 { noFit: true }
    *  - 아니면 { looks: [{ top, bottom, outer, acc, tip }], key, page, pageCount }
    *    key 는 온도 구간 (구간이 바뀌면 첫 묶음부터 보여주려고), page 는 pageCount 로 돌린 값.
    */
-  function pickFromCloset({ items, temp, warmthTable, seed, page = 0 }) {
+  function pickFromCloset({ items, temp, warmthTable, seed, page = 0, worn = {} }) {
     if (!items.length) return { empty: true };
 
     const row = findRow(warmthTable, temp);
@@ -254,7 +282,7 @@
           for (const acc of pools.acc) {
             const combo = { top, bottom, outer, acc };
             const warmth = warmthScore(combo, row);
-            if (warmth !== null) all.push({ ...combo, score: warmth + colorScore(combo) });
+            if (warmth !== null) all.push({ ...combo, score: warmth + colorScore(combo) + wornScore(combo, worn) });
           }
     if (!all.length) return { noFit: true };
 
@@ -301,6 +329,7 @@
   const Coach = {
     COACH_RULES, COACH_ADDONS, COLOR_FAMILIES, SLOT_LABEL, PER_PAGE, SCORE, WARMTH_SLACK, WARMTH_MAX_GAP,
     hexToHsl, colorFamily, isVivid, colorScore, warmthNeed, warmthScore, seededShuffle,
+    daysBetween, wornDays, wornScore,
     coachTip, findRow, defaultLooks, pickFromCloset, mergeItems, addRain, lookTitle,
   };
 

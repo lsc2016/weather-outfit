@@ -68,7 +68,8 @@ class El {
   get offsetWidth() { return 0; }
 }
 
-function boot({ wardrobe = [] } = {}) {
+function boot({ wardrobe = [], storage = {} } = {}) {
+  const backupParts = {};
   const els = {};
   const getEl = (id) => (els[id] ||= new El());
   const renders = [];
@@ -89,13 +90,14 @@ function boot({ wardrobe = [] } = {}) {
     window: { addEventListener() {}, scrollTo() {} },
     location: { hash: '#today' },
     navigator: {},
-    localStorage: { getItem: () => null, setItem() {} },
+    localStorage: { getItem: (k) => storage[k] ?? null, setItem: (k, v) => { storage[k] = String(v); } },
     fetch: () => new Promise(() => {}), // 시험에서는 날씨를 안 가져온다 (applyWeather 로 직접 넣음)
     Character: { render: (_el, layers) => renders.push(layers) },
     Wardrobe: {
       list: () => wardrobe,
       artFor: (it) => ({ top: 'knit', bottom: 'jeans', outer: 'jacket', acc: 'scarf' })[it.type],
       onChange() {},
+      addBackupPart: (name, part) => { backupParts[name] = part; },
     },
   };
   ctx.window.Coach = undefined;
@@ -103,7 +105,7 @@ function boot({ wardrobe = [] } = {}) {
   vm.runInContext(read('coach.js'), ctx); // module 이 없으니 window.Coach 로 나온다
   ctx.Coach = ctx.window.Coach;
   vm.runInContext(read('app.js'), ctx);
-  return { ctx, els, renders, run: (code) => vm.runInContext(code, ctx) };
+  return { ctx, els, renders, storage, backupParts, run: (code) => vm.runInContext(code, ctx) };
 }
 
 function swipe(el, dx, dy = 0) {
@@ -232,4 +234,61 @@ test('옷장에 맞는 하의가 없으면 기본 추천으로 가고 "없음" �
   assert.strictEqual(els.closetHint.hidden, false);
   assert.match(els.closetMissing.textContent, /하의/);
   assert.match(els.closetMissing.textContent, /없음/);
+});
+
+test('옷장 추천엔 "오늘 이거 입었어요" 버튼: 누르면 오늘 기록, 다시 누르면 취소, 기본 추천엔 버튼 없음', () => {
+  let n = 0;
+  const c = (type, name, color) => ({ id: `w${n++}`, type, name, color, warmth: 3 });
+  const wardrobe = [
+    c('top', '회색 니트', '#9a9da3'), c('top', '흰 셔츠', '#ffffff'),
+    c('bottom', '청바지', '#3b5b8f'), c('bottom', '검정 슬랙스', '#1a1a1a'),
+    c('outer', '회색 재킷', '#8a8a8a'),
+  ];
+  const { els, storage, backupParts, run } = boot({ wardrobe });
+  run(`applyWeather(${JSON.stringify(WEATHER)})`);
+  const today = run('todayKey()');
+  const btn = () => els.lookDetail.querySelectorAll('.worn-btn')[0];
+
+  assert.ok(btn(), '버튼이 있다');
+  assert.strictEqual(btn().getAttribute('aria-pressed'), 'false');
+  const title = els.lookDetail.querySelectorAll('.look-title')[0].textContent;
+
+  els.lookDetail.dispatch('click', btn());
+  const saved = JSON.parse(storage['outfit.worn.v1']);
+  assert.deepStrictEqual(Object.keys(saved), [today]);
+  assert.strictEqual(saved[today].length, 3, '상의 · 하의 · 겉옷');
+  assert.strictEqual(btn().getAttribute('aria-pressed'), 'true');
+  assert.match(btn().textContent, /취소/);
+  // 오늘 기록으로는 순서가 안 바뀐다
+  assert.strictEqual(els.lookDetail.querySelectorAll('.look-title')[0].textContent, title);
+  // 백업 파일에도 들어간다
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(backupParts.worn.get())), saved);
+
+  els.lookDetail.dispatch('click', btn());
+  assert.deepStrictEqual(JSON.parse(storage['outfit.worn.v1']), {});
+  assert.strictEqual(btn().getAttribute('aria-pressed'), 'false');
+
+  // 옷장이 비면 기본 추천 → 버튼 없음
+  const plain = boot();
+  plain.run(`applyWeather(${JSON.stringify(WEATHER)})`);
+  assert.strictEqual(plain.els.lookDetail.querySelectorAll('.worn-btn').length, 0);
+});
+
+test('어제 입은 상의는 뒤로 가고, 그 옷이 나오는 카드엔 "어제 입음" 안내', () => {
+  const wardrobe = [
+    { id: 'a', type: 'top', name: '흰 셔츠', color: '#ffffff', warmth: 3 },
+    { id: 'b', type: 'top', name: '회색 맨투맨', color: '#f0f0f0', warmth: 3 },
+    { id: 'p', type: 'bottom', name: '검정 슬랙스', color: '#1a1a1a', warmth: 3 },
+    { id: 'j', type: 'outer', name: '회색 재킷', color: '#8a8a8a', warmth: 3 },
+  ];
+  const d = new Date(); d.setDate(d.getDate() - 1);
+  const yesterday = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const { els, run } = boot({ wardrobe, storage: { 'outfit.worn.v1': JSON.stringify({ [yesterday]: ['a', 'p', 'j'] }) } });
+  run(`applyWeather(${JSON.stringify(WEATHER)})`);
+  const titles = () => els.lookDetail.querySelectorAll('.look-title')[0].textContent;
+  assert.strictEqual(titles(), '회색 맨투맨 + 검정 슬랙스');
+  assert.match(els.lookDetail.querySelectorAll('.look-worn')[0].textContent, /하의 어제 입음/);
+  els.nextLookBtn.dispatch('click');
+  assert.strictEqual(titles(), '흰 셔츠 + 검정 슬랙스');
+  assert.match(els.lookDetail.querySelectorAll('.look-worn')[0].textContent, /상의 어제 입음 · 하의 어제 입음/);
 });

@@ -263,3 +263,23 @@ test('점수 낮은 조합(쨍한 빨강 + 쨍한 노랑)은 다양성 때문에
   const second = Coach.pickFromCloset({ items, temp: 14, warmthTable: WARMTH_TABLE, seed: SEED, page: 1 });
   assert.deepStrictEqual(names(second.looks), ['빨강 니트 + 노랑 바지']);
 });
+
+test('입은 기록: 며칠 전인지 세고, 어제 입은 상의 쌍은 뒤로, 오늘 입은 건 그대로', () => {
+  const log = { '2026-10-29': ['a', 'b'], '2026-10-31': ['a'], '2026-11-02': ['c'] };
+  assert.deepStrictEqual(Coach.wornDays(log, '2026-10-31'), { a: 0, b: 2 }); // 앞날 기록은 무시
+  assert.strictEqual(Coach.daysBetween('2026-10-31', '2026-11-01'), 1);
+
+  const items = [
+    cloth('top', '흰 셔츠', '#ffffff', 3),
+    cloth('top', '흰 니트', '#f5f5f5', 3),
+    cloth('bottom', '검정 바지', '#111111', 3),
+    greyJacket(),
+  ];
+  const [shirt, knit] = items;
+  const order = (worn) => Coach.pickFromCloset({ items, temp: 14, warmthTable: WARMTH_TABLE, seed: SEED, worn })
+    .looks.map((l) => l.top.name);
+  assert.deepStrictEqual(order({ [shirt.id]: 1 }), ['흰 니트', '흰 셔츠']);
+  assert.deepStrictEqual(order({ [knit.id]: 1 }), ['흰 셔츠', '흰 니트']);
+  assert.deepStrictEqual(order({ [shirt.id]: 0 }), order({}), '오늘 입은 건 안 깎음');
+  assert.deepStrictEqual(order({ [shirt.id]: 9 }), order({}), '오래전은 안 깎음');
+});

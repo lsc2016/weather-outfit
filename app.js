@@ -176,6 +176,9 @@ const DEFAULT_PLACE = { name: '서울', lat: 37.5665, lon: 126.978 };
 
 const CACHE_KEY = 'outfit.weather.v1';
 const SENSE_KEY = 'outfit.sensitivity';
+const WORN_KEY = 'outfit.worn.v1'; // 입은 기록 { 'YYYY-MM-DD': [상의 · 하의 · 겉옷 id] } — 하루 한 벌
+const WORN_KEEP_DAYS = 30;          // 이보다 오래된 기록은 버린다
+const WORN_NOTE_DAYS = 7;           // 카드에 "어제 입음" 같은 안내를 붙이는 기간
 const CACHE_MS = 60 * 60 * 1000; // 1시간
 const SLIDER_MIN = -10;
 const SLIDER_MAX = 35;
@@ -206,6 +209,7 @@ const state = {
   selected: 0,        // 캐릭터에 입힌 추천안 카드 번호
   looks: [],          // 지금 보여주는 추천안들
   looksSig: '',       // 그 추천안들의 이름 (바뀌면 첫 카드부터 선택)
+  worn: {},           // 입은 기록 (WORN_KEY)
 };
 
 const $ = (id) => document.getElementById(id);
@@ -216,6 +220,56 @@ function storageGet(key) {
 }
 function storageSet(key, value) {
   try { localStorage.setItem(key, value); } catch { /* 저장 못 해도 무시 */ }
+}
+
+/* ===== 입은 기록 ===== */
+
+// 오늘 날짜 'YYYY-MM-DD' (기기 시간대)
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// 들어온 값을 기록 모양으로 다듬고 오래된 날은 버린다
+function normalizeWorn(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  const today = todayKey();
+  for (const [date, ids] of Object.entries(raw)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Array.isArray(ids)) continue;
+    const age = Coach.daysBetween(date, today);
+    if (!(age >= 0 && age <= WORN_KEEP_DAYS)) continue;
+    const clean = ids.filter((id) => typeof id === 'string' && id);
+    if (clean.length) out[date] = clean;
+  }
+  return out;
+}
+
+function loadWorn() {
+  try { return normalizeWorn(JSON.parse(storageGet(WORN_KEY) || '{}')); } catch { return {}; }
+}
+
+function setWorn(next) {
+  state.worn = normalizeWorn(next);
+  storageSet(WORN_KEY, JSON.stringify(state.worn));
+}
+
+const lookIds = (look) => [look.top, look.bottom, look.outer].map((it) => it?.id).filter(Boolean);
+
+// 이 추천안을 오늘 입은 옷으로 기록했는지 (옷장 추천만)
+function wornToday(look) {
+  const today = state.worn[todayKey()] || [];
+  const ids = lookIds(look);
+  return ids.length > 0 && ids.every((id) => today.includes(id));
+}
+
+// "오늘 이거 입었어요" — 누르면 오늘 기록을 이 추천안으로 바꾸고, 다시 누르면 지운다
+function toggleWorn(look) {
+  const next = { ...state.worn };
+  if (wornToday(look)) delete next[todayKey()];
+  else next[todayKey()] = lookIds(look);
+  setWorn(next);
+  renderLookSlide(state.looks);
 }
 
 /* ===== 날씨 가져오기 ===== */
@@ -327,7 +381,7 @@ function clampSlider(t) {
 
 // 옷장 옷 → 추천안 칸에 쓰는 모양 (캐릭터는 기존 그림에 옷 색만 입힌다)
 function closetItem(it) {
-  return { name: it.name, color: it.color, art: { art: Wardrobe.artFor(it), color: it.color } };
+  return { id: it.id, name: it.name, color: it.color, art: { art: Wardrobe.artFor(it), color: it.color } };
 }
 
 // 지금 추천에 쓰는 기준 온도 (보정 전)
@@ -352,6 +406,7 @@ function buildLooks(target) {
     warmthTable: WARMTH_TABLE,
     seed: new Date().toDateString(),
     page: state.combo.index,
+    worn: Coach.wornDays(state.worn, todayKey()),
   });
   // 옷장에 맞는 소품이 없으면 소품 칸만 기본 룩에서
   const fallbackAcc = defaults.find((look) => look.acc)?.acc ?? null;
@@ -534,6 +589,32 @@ function renderLookSlide(looks, direction = null) {
     tip.textContent = look.tip;
     card.append(tip);
 
+    // 옷장 추천이면 입은 기록 (최근에 입은 옷 안내 + "오늘 이거 입었어요")
+    if (lookIds(look).length) {
+      const days = Coach.wornDays(state.worn, todayKey());
+      const recent = ['top', 'bottom', 'outer']
+        .filter((slot) => look[slot] && days[look[slot].id] >= 1 && days[look[slot].id] <= WORN_NOTE_DAYS)
+        .map((slot) => {
+          const d = days[look[slot].id];
+          return `${Coach.SLOT_LABEL[slot]} ${d === 1 ? '어제' : `${d}일 전`} 입음`;
+        });
+      if (recent.length) {
+        const note = document.createElement('div');
+        note.className = 'look-worn';
+        note.textContent = recent.join(' · ');
+        card.append(note);
+      }
+
+      const done = wornToday(look);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chip-btn worn-btn';
+      if (done) btn.classList.add('on');
+      btn.setAttribute('aria-pressed', String(done));
+      btn.textContent = done ? '✓ 오늘 입었어요 · 취소' : '👕 오늘 이거 입었어요';
+      card.append(btn);
+    }
+
     detail.append(card);
   }
 
@@ -608,7 +689,20 @@ function init() {
   showTab();
   window.addEventListener('hashchange', showTab);
 
+  state.worn = loadWorn();
   setSense(storageGet(SENSE_KEY) || 'normal', false);
+
+  // 입은 기록도 백업 파일에 함께
+  Wardrobe.addBackupPart('worn', {
+    label: '입은 기록',
+    get: () => state.worn,
+    set: (value) => { setWorn(value); renderOutfit(); },
+  });
+
+  // 코디 설명의 "오늘 이거 입었어요" 버튼
+  $('lookDetail').addEventListener('click', (e) => {
+    if (e.target.closest('.worn-btn') && state.looks[state.selected]) toggleWorn(state.looks[state.selected]);
+  });
 
   $('nextComboBtn').addEventListener('click', () => {
     state.combo.index += 1;
