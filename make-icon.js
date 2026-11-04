@@ -37,7 +37,8 @@ const DIR = __dirname;
 
 // sharp 찾기: 프로젝트 → 전역 node_modules → 전역 패키지 안
 function loadSharp() {
-  const globalRoot = '/usr/local/lib/node_modules';
+  // 전역 node_modules 자리 (다른 컴퓨터면 SHARP_GLOBAL_ROOT 로 바꿈, 기본은 예전 그대로)
+  const globalRoot = process.env.SHARP_GLOBAL_ROOT || '/usr/local/lib/node_modules';
   const candidates = [
     path.join(DIR, 'package.json'),
     path.join(globalRoot, 'noop.js'),
