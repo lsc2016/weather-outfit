@@ -138,6 +138,12 @@
       return Array.isArray(list) ? list.map(normalize).filter(Boolean) : [];
     } catch (err) {
       console.warn('옷장 불러오기 실패:', err);
+      // 깨진 원래 글자를 다른 키에 남겨 둔다 (빈 옷장으로 저장하면서 덮어써 사라지지 않게)
+      try {
+        const raw = localStorage.getItem(STORE.KEY);
+        const keep = STORE.KEY + '.broken';
+        if (raw && localStorage.getItem(keep) === null) localStorage.setItem(keep, raw);
+      } catch { /* 남기기도 실패하면 그냥 넘어감 */ }
       return [];
     }
   }
